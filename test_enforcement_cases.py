@@ -201,7 +201,7 @@ class TestEnforcementAndAttentiveLearning(unittest.TestCase):
         # Check domain routing
         youtube_domains = [
             "youtube.com", "www.youtube.com", "m.youtube.com",
-            "googlevideo.com", "ytimg.com", "youtubei.googleapis.com"
+            "music.youtube.com", "youtu.be"
         ]
         for domain in youtube_domains:
             self.assertTrue(

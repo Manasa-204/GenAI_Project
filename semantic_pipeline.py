@@ -259,8 +259,10 @@ def set_mock_semantic_state(state):
     _mock_semantic_state = state
 
 
+import urllib.request
+import urllib.parse
 from urllib.parse import quote_plus
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import json
 
 
@@ -289,6 +291,126 @@ def extract_youtube_video_id(url_or_str: str) -> Optional[str]:
     return None
 
 
+def search_youtube_videos(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    """
+    Directly queries YouTube search to retrieve real video IDs, titles, durations, and channels.
+    Provides exact videoId embeds to avoid deprecated listType=search.
+    """
+    clean_q = (query or "").strip()
+    if not clean_q:
+        return []
+    url = f"https://www.youtube.com/results?search_query={quote_plus(clean_q)}"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+    items = []
+    try:
+        html = urllib.request.urlopen(req, timeout=5).read().decode("utf-8", "ignore")
+        m = re.search(r"var ytInitialData = ({.*?});</script>", html)
+        if m:
+            data = json.loads(m.group(1))
+
+            def walk(obj):
+                if isinstance(obj, dict):
+                    if "videoRenderer" in obj:
+                        vr = obj["videoRenderer"]
+                        vid = vr.get("videoId")
+                        title = vr.get("title", {}).get("runs", [{}])[0].get("text", "")
+                        dur = vr.get("lengthText", {}).get("simpleText", "")
+                        channel = vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "")
+                        if vid and title:
+                            items.append({
+                                "id": vid,
+                                "title": title,
+                                "duration": dur,
+                                "channel": channel,
+                                "embed_url": f"https://www.youtube-nocookie.com/embed/{vid}?autoplay=1"
+                            })
+                    for v in obj.values():
+                        walk(v)
+                elif isinstance(obj, list):
+                    for item in obj:
+                        walk(item)
+
+            walk(data)
+
+        if not items:
+            raw_ids = list(dict.fromkeys(re.findall(r"watch\?v=([a-zA-Z0-9_-]{11})", html)))
+            for vid in raw_ids[:max_results]:
+                items.append({
+                    "id": vid,
+                    "title": clean_q.title(),
+                    "duration": "",
+                    "channel": "YouTube",
+                    "embed_url": f"https://www.youtube-nocookie.com/embed/{vid}?autoplay=1"
+                })
+    except Exception:
+        pass
+
+    return items[:max_results]
+
+
+TYPO_CORRECTIONS = {
+    "scienece": "science", "sceince": "science", "sciecne": "science",
+    "histroy": "history", "histry": "history", "histor": "history",
+    "phsyics": "physics", "pyhsics": "physics",
+    "chemsitry": "chemistry", "chemisrty": "chemistry",
+    "mathemetics": "mathematics", "mathemtics": "mathematics", "maths": "math",
+    "comptuer": "computer", "computr": "computer",
+    "alegbra": "algebra", "calculas": "calculus", "biolgy": "biology",
+    "geogaphy": "geography", "geogrophy": "geography"
+}
+
+DOMAINS = {
+    "social": [
+        "social", "society", "history", "civics", "polity", "government", "democracy",
+        "geography", "culture", "archaeology", "anthropology", "sociology", "ashoka", "maurya",
+        "mughal", "empire", "dynasty", "emperor", "king", "ancient", "civilization",
+        "revolution", "constitution", "documentary", "biography", "battle", "war", "treaty"
+    ],
+    "history": [
+        "history", "empire", "dynasty", "emperor", "king", "ancient", "medieval", "civilization",
+        "war", "revolution", "monarch", "treaty", "ashoka", "maurya", "mughal", "rome", "greek",
+        "documentary", "biography", "timeline", "colonial", "monument", "battle", "independence"
+    ],
+    "science": [
+        "science", "physics", "chemistry", "biology", "botany", "zoology", "atom", "energy",
+        "gravity", "motion", "cell", "planet", "space", "astronomy", "reaction", "ecosystem",
+        "nature", "photosynthesis", "genetics", "evolution", "molecule", "optics", "quantum"
+    ],
+    "math": [
+        "math", "mathematics", "calculus", "algebra", "geometry", "trigonometry", "statistics",
+        "derivative", "integral", "equation", "theorem", "matrix", "vector", "probability", "limits"
+    ],
+    "computer": [
+        "computer", "programming", "code", "python", "java", "c++", "algorithm", "data structure",
+        "software", "database", "sql", "linux", "operating system", "web", "ai", "machine learning"
+    ]
+}
+
+EDUCATIONAL_KEYWORDS = [
+    "calculus", "math", "mathematics", "physics", "chemistry", "biology",
+    "computer science", "programming", "python", "java", "c++", "data structures",
+    "algorithms", "tutorial", "lecture", "course", "class", "edx", "coursera",
+    "khan academy", "mit", "harvard", "stanford", "professor", "explanation",
+    "how to", "history", "economics", "psychology", "literature", "engineering",
+    "research", "paper", "architecture", "design patterns", "devops", "database",
+    "sql", "machine learning", "ai", "neural network", "linear algebra", "statistics",
+    "derivatives", "integration", "geometry", "algebra", "operating systems",
+    "compiler", "frontend", "backend", "react", "fastapi", "docker", "kubernetes",
+    "documentary", "biography", "empire", "civilization", "dynasty", "ancient", "ashoka",
+    "revolution", "constitution", "polity", "geography", "civics", "lesson", "notes",
+    "summary", "explained", "full course", "crash course", "ncert", "cbse", "upsc"
+]
+
+DISTRACTION_KEYWORDS = [
+    "meme", "memes", "funny", "tiktok", "reels", "shorts", "prank", "pranks",
+    "gaming", "gameplay", "gta", "minecraft", "fortnite", "valorant", "roblox",
+    "stream", "twitch", "comedy", "music video", "official music video", "trailer",
+    "movie clip", "vlog", "mrbeast", "dank", "compilation", "react", "reaction",
+    "entertainment", "gossip", "unboxing", "challenge", "asmr", "horrific", "scary",
+    "fails", "fail", "dance", "trolling"
+]
+
+
 def validate_youtube_content(
     query_or_url: str,
     user_task: str = "General Academic Study",
@@ -297,6 +419,7 @@ def validate_youtube_content(
     """
     Evaluates whether a YouTube search query or video URL is EDUCATIONAL and relevant
     to the user's active study task. If not, playback is strictly blocked.
+    Resolves exact video IDs and in-frame playable URLs.
     """
     clean_query = (query_or_url or "").strip()
     clean_task = (user_task or "General Academic Study").strip()
@@ -307,40 +430,54 @@ def validate_youtube_content(
             "category": "INVALID",
             "reason": "Please enter a search query or YouTube video link.",
             "video_id": None,
-            "embed_url": None
+            "embed_url": None,
+            "videos": []
         }
 
     vid_id = extract_youtube_video_id(clean_query)
     q_lower = clean_query.lower()
     task_lower = clean_task.lower()
 
-    # 1. Distraction keywords check
-    distraction_keywords = [
-        "meme", "memes", "funny", "tiktok", "reels", "shorts", "prank", "pranks",
-        "gaming", "gameplay", "gta", "minecraft", "fortnite", "valorant", "roblox",
-        "stream", "twitch", "comedy", "music video", "official music video", "trailer",
-        "movie clip", "vlog", "mrbeast", "dank", "compilation", "react", "reaction",
-        "entertainment", "gossip", "unboxing", "challenge", "asmr", "horrific", "scary",
-        "fails", "fail", "dance", "trolling"
-    ]
+    # Normalize user task with typo correction (e.g. 'social scienece' -> 'social science')
+    norm_task_words = [TYPO_CORRECTIONS.get(w, w) for w in re.findall(r"[a-zA-Z]+", task_lower)]
+    norm_task = " ".join(norm_task_words)
 
-    matched_distraction = next((kw for kw in distraction_keywords if re.search(rf"\b{re.escape(kw)}\b", q_lower)), None)
+    # 1. Distraction keywords check
+    matched_distraction = next((kw for kw in DISTRACTION_KEYWORDS if re.search(rf"\b{re.escape(kw)}\b", q_lower)), None)
     if matched_distraction and matched_distraction not in task_lower:
         return {
             "is_approved": False,
             "category": "DISTRACTION",
             "reason": f"Content contains entertainment keyword '{matched_distraction}' which is blocked during focus sessions.",
             "video_id": vid_id,
-            "embed_url": None
+            "embed_url": None,
+            "videos": []
         }
 
-    # 2. Try querying Ollama for deep semantic relevance if available
+    # 2. Retrieve real videos for search queries or build single entry for direct video ID
+    found_videos = []
+    if vid_id:
+        found_videos = [{
+            "id": vid_id,
+            "title": clean_query,
+            "duration": "",
+            "channel": "YouTube",
+            "embed_url": f"https://www.youtube-nocookie.com/embed/{vid_id}?autoplay=1"
+        }]
+    else:
+        found_videos = search_youtube_videos(clean_query, max_results=5)
+        if found_videos:
+            vid_id = found_videos[0]["id"]
+
+    video_titles = [v["title"].lower() for v in found_videos]
+
+    # 3. Try querying Ollama for deep semantic relevance if available
     try:
         model = resolve_model_name(None, ollama_url)
         prompt = (
             f"You are an AI Academic Content Classifier for a focused student workstation.\n"
-            f"Active Student Task: \"{clean_task}\"\n"
-            f"Requested YouTube Query or Title: \"{clean_query}\"\n\n"
+            f"Active Student Task: \"{norm_task}\"\n"
+            f"Requested YouTube Content: \"{clean_query}\"\n\n"
             f"Evaluate if this YouTube content is EDUCATIONAL and relevant to the student's task.\n"
             f"Respond strictly with a JSON object in this exact format:\n"
             f'{{"approved": true, "category": "EDUCATIONAL", "reason": "concise explanation"}}'
@@ -354,7 +491,7 @@ def validate_youtube_content(
                 "stream": False,
                 "options": {"temperature": 0.0, "num_predict": 50}
             },
-            timeout=3.0
+            timeout=2.0
         )
         if resp.status_code == 200:
             raw = resp.json().get("response", "").strip()
@@ -364,44 +501,47 @@ def validate_youtube_content(
                 approved = bool(parsed.get("approved", False))
                 cat = parsed.get("category", "EDUCATIONAL" if approved else "DISTRACTION")
                 reason = parsed.get("reason", "Evaluated by AI.")
-                embed = f"https://www.youtube-nocookie.com/embed/{vid_id}?autoplay=1" if (approved and vid_id) else (
-                    f"https://www.youtube-nocookie.com/embed?listType=search&list={quote_plus(clean_query)}" if approved else None
-                )
+                embed = f"https://www.youtube-nocookie.com/embed/{vid_id}?autoplay=1" if (approved and vid_id) else None
                 return {
                     "is_approved": approved,
                     "category": cat,
                     "reason": reason,
                     "video_id": vid_id,
-                    "embed_url": embed
+                    "embed_url": embed,
+                    "videos": found_videos if approved else []
                 }
     except Exception:
         pass
 
-    # 3. Local Academic Semantic Heuristic
-    academic_keywords = [
-        "calculus", "math", "mathematics", "physics", "chemistry", "biology",
-        "computer science", "programming", "python", "java", "c++", "data structures",
-        "algorithms", "tutorial", "lecture", "course", "class", "edx", "coursera",
-        "khan academy", "mit", "harvard", "stanford", "professor", "explanation",
-        "how to", "history", "economics", "psychology", "literature", "engineering",
-        "research", "paper", "architecture", "design patterns", "devops", "database",
-        "sql", "machine learning", "ai", "neural network", "linear algebra", "statistics",
-        "derivatives", "integration", "geometry", "algebra", "operating systems",
-        "compiler", "frontend", "backend", "react", "fastapi", "docker", "kubernetes"
-    ]
+    # 4. Local Academic Semantic & Domain Reasoning
+    q_words = re.findall(r"[a-zA-Z]+", q_lower)
+    all_context_words = set(q_words)
+    for t in video_titles:
+        all_context_words.update(re.findall(r"[a-zA-Z]+", t))
 
-    is_academic = any(kw in q_lower for kw in academic_keywords)
-    task_words = [w for w in re.findall(r"[a-zA-Z]{3,}", task_lower) if w not in ("and", "the", "for", "with", "study", "learning")]
-    task_overlap = any(w in q_lower for w in task_words) if task_words else False
+    # Match active task domains (e.g. 'social science' activates social & history domains)
+    active_domain_words = set()
+    for tw in norm_task_words:
+        for dom_name, dom_list in DOMAINS.items():
+            if tw in dom_name or dom_name in tw:
+                active_domain_words.update(dom_list)
 
-    if is_academic or task_overlap or clean_task == "General Academic Study":
-        embed = f"https://www.youtube-nocookie.com/embed/{vid_id}?autoplay=1" if vid_id else f"https://www.youtube-nocookie.com/embed?listType=search&list={quote_plus(clean_query)}"
+    domain_match = any(w in active_domain_words for w in all_context_words) if active_domain_words else False
+    is_academic = any(kw in q_lower for kw in EDUCATIONAL_KEYWORDS) or any(
+        any(kw in t for kw in EDUCATIONAL_KEYWORDS) for t in video_titles
+    )
+    task_overlap = any(tw in q_lower for tw in norm_task_words if tw not in ("and", "the", "for", "with", "study", "learning"))
+    is_general_study = norm_task in ("general academic study", "academic study", "self study", "school", "study")
+
+    if domain_match or is_academic or task_overlap or is_general_study:
+        embed = f"https://www.youtube-nocookie.com/embed/{vid_id}?autoplay=1" if vid_id else None
         return {
             "is_approved": True,
             "category": "EDUCATIONAL",
-            "reason": f"Content matches academic keywords or active study task ('{clean_task}').",
+            "reason": f"Content verified as educational and relevant to '{clean_task}'.",
             "video_id": vid_id,
-            "embed_url": embed
+            "embed_url": embed,
+            "videos": found_videos
         }
     else:
         return {
@@ -409,7 +549,8 @@ def validate_youtube_content(
             "category": "UNRELATED",
             "reason": f"Content does not appear educational or relevant to your active task: '{clean_task}'.",
             "video_id": vid_id,
-            "embed_url": None
+            "embed_url": None,
+            "videos": []
         }
 
 

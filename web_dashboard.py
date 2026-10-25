@@ -1276,6 +1276,15 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                     </div>
                 </div>
             </div>
+
+            <!-- Video Switcher / Educational Search Results -->
+            <div id="yt-results-container" class="hidden p-3.5 bg-slate-900/60 rounded-xl border border-slate-800 space-y-2">
+                <div class="flex items-center justify-between text-xs font-bold text-slate-300">
+                    <span class="flex items-center gap-1.5"><i class="fa-solid fa-play text-indigo-400"></i> Recommended Educational Lectures &amp; Documentaries (Click to Watch):</span>
+                    <span id="yt-results-count" class="text-[10px] mono text-slate-500"></span>
+                </div>
+                <div id="yt-results-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"></div>
+            </div>
         </div>
 
         <!-- Master Test Suites Runner -->
@@ -2039,6 +2048,9 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
             const deniedCard = document.getElementById('yt-denied-card');
             const deniedReason = document.getElementById('yt-denied-reason');
             const deniedTask = document.getElementById('yt-denied-task');
+            const resultsContainer = document.getElementById('yt-results-container');
+            const resultsList = document.getElementById('yt-results-list');
+            const resultsCount = document.getElementById('yt-results-count');
 
             banner.classList.remove('hidden');
 
@@ -2058,6 +2070,27 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                 if (data.embed_url) {
                     iframe.src = data.embed_url;
                 }
+
+                if (data.videos && data.videos.length > 0) {
+                    resultsContainer.classList.remove('hidden');
+                    resultsCount.textContent = `${data.videos.length} videos found`;
+                    resultsList.innerHTML = data.videos.map((v) => `
+                        <div onclick="playSpecificVideo('${v.id}')" class="p-2.5 rounded-lg bg-slate-950/70 hover:bg-indigo-950/40 border border-slate-800 hover:border-indigo-500/40 cursor-pointer transition flex flex-col justify-between group">
+                            <div>
+                                <div class="text-[11px] font-bold text-slate-200 group-hover:text-indigo-300 line-clamp-2">${escapeHtml(v.title)}</div>
+                                <div class="text-[10px] text-slate-500 mt-1 flex items-center justify-between">
+                                    <span>${escapeHtml(v.channel || 'Educational')}</span>
+                                    ${v.duration ? `<span class="mono bg-slate-800 px-1.5 py-0.5 rounded text-[9px] text-slate-400">${v.duration}</span>` : ''}
+                                </div>
+                            </div>
+                            <button type="button" class="mt-2 py-1 px-2 rounded bg-indigo-600/30 group-hover:bg-indigo-600 text-indigo-300 group-hover:text-white text-[10px] font-bold transition flex items-center justify-center gap-1">
+                                <i class="fa-solid fa-play text-[8px]"></i> Play Video
+                            </button>
+                        </div>
+                    `).join('');
+                } else {
+                    resultsContainer.classList.add('hidden');
+                }
             } else {
                 banner.className = "p-3.5 rounded-xl border bg-rose-950/30 border-rose-500/50 flex items-start gap-3 transition-all text-xs";
                 icon.className = "w-7 h-7 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center flex-shrink-0 text-sm";
@@ -2074,7 +2107,20 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                 deniedCard.classList.remove('hidden');
                 deniedReason.textContent = data.reason;
                 deniedTask.textContent = currentStudyTask;
+                resultsContainer.classList.add('hidden');
             }
+        }
+
+        function playSpecificVideo(videoId) {
+            const iframe = document.getElementById('yt-iframe');
+            iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1`;
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>"']/g, function(m) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
+            });
         }
 
         function resetYouTubePlayer() {
@@ -2085,6 +2131,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
             document.getElementById('yt-denied-card').classList.add('hidden');
             document.getElementById('yt-placeholder').classList.remove('hidden');
             document.getElementById('yt-verdict-banner').classList.add('hidden');
+            document.getElementById('yt-results-container').classList.add('hidden');
         }
 
         function quickSearch(topic) {
@@ -2241,7 +2288,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/test-youtube-block":
             domains_to_test = [
                 "youtube.com", "www.youtube.com", "m.youtube.com",
-                "googlevideo.com", "ytimg.com", "youtubei.googleapis.com"
+                "music.youtube.com", "youtu.be"
             ]
             results = []
             for d in domains_to_test:
