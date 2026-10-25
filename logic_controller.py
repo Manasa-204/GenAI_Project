@@ -12,6 +12,7 @@ Implements:
 """
 
 import os
+import sys
 import csv
 import time
 from datetime import datetime
@@ -31,7 +32,19 @@ except ImportError:
     semantic_pipeline = None
 
 DEFAULT_CSV_FILE = "research_data.csv"
-DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), DEFAULT_CSV_FILE)
+
+
+def get_default_csv_path() -> str:
+    """Returns local path in dev mode, or %LOCALAPPDATA%\\Demon in frozen .exe mode."""
+    if getattr(sys, "frozen", False):
+        appdata = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+        demon_dir = os.path.join(appdata, "Demon")
+        os.makedirs(demon_dir, exist_ok=True)
+        return os.path.join(demon_dir, DEFAULT_CSV_FILE)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), DEFAULT_CSV_FILE)
+
+
+DEFAULT_CSV_PATH = get_default_csv_path()
 DEFAULT_POLL_INTERVAL = 5.0  # seconds
 
 

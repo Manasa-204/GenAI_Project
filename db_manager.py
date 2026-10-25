@@ -13,8 +13,22 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
+import sys
+
 DEFAULT_DB_FILE = "study_monitor.db"
-DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), DEFAULT_DB_FILE)
+
+
+def get_default_db_path() -> str:
+    """Returns local path in dev mode, or %LOCALAPPDATA%\\Demon in frozen .exe mode."""
+    if getattr(sys, "frozen", False):
+        appdata = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+        demon_dir = os.path.join(appdata, "Demon")
+        os.makedirs(demon_dir, exist_ok=True)
+        return os.path.join(demon_dir, DEFAULT_DB_FILE)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), DEFAULT_DB_FILE)
+
+
+DEFAULT_DB_PATH = get_default_db_path()
 
 
 @contextmanager
