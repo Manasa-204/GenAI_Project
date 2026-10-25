@@ -27,6 +27,13 @@ DEFAULT_DISTRACTION_DOMAINS = [
     "music.youtube.com",
     "youtube-nocookie.com",
     "googlevideo.com",
+    "manifest.googlevideo.com",
+    "redirector.googlevideo.com",
+    "ytimg.com",
+    "i.ytimg.com",
+    "s.ytimg.com",
+    "yt3.ggpht.com",
+    "youtubei.googleapis.com",
     "reddit.com",
     "www.reddit.com",
     "twitter.com",
@@ -181,6 +188,7 @@ def enforce_active_distraction(window_title=None):
     if sys.platform != "win32":
         return False
 
+    hdesk = None
     try:
         user32 = ctypes.windll.user32
         hdesk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
@@ -191,13 +199,15 @@ def enforce_active_distraction(window_title=None):
         if not hwnd or not user32.IsWindowVisible(hwnd):
             return False
 
-        length = user32.GetWindowTextLengthW(hwnd)
-        if length <= 0:
-            return False
-
-        buf = ctypes.create_unicode_buffer(length + 1)
-        user32.GetWindowTextW(hwnd, buf, length + 1)
-        curr_title = buf.value.strip().lower()
+        if window_title:
+            curr_title = window_title.strip().lower()
+        else:
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length <= 0:
+                return False
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buf, length + 1)
+            curr_title = buf.value.strip().lower()
 
         # Whitelist safe workspace tools so we never minimize developer IDE or terminal
         whitelist = ["demon", "visual studio", "antigravity", "cursor", "cmd", "powershell", "terminal", "bash", "python"]
@@ -218,6 +228,12 @@ def enforce_active_distraction(window_title=None):
                 return True
     except Exception:
         pass
+    finally:
+        if hdesk and 'user32' in locals() and hasattr(user32, 'CloseDesktop'):
+            try:
+                user32.CloseDesktop(hdesk)
+            except Exception:
+                pass
     return False
 
 

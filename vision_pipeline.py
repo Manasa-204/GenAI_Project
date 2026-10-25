@@ -13,6 +13,8 @@ import numpy as np
 import cv2
 import mediapipe as mp
 
+from user_tracker import get_user_tracker
+
 
 # Landmark indices for MediaPipe Face Mesh (468/478 landmarks)
 # Left Eye indices (from subject's perspective)
@@ -47,6 +49,23 @@ HEAD_MODEL_POINTS_3D = np.array([
 ], dtype=np.float64)
 
 POSE_LANDMARK_INDICES = [1, 152, 33, 263, 61, 291]
+
+
+def get_system_idle_time() -> float:
+    """Returns elapsed seconds since the user's last keyboard or mouse input on Windows."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            class LASTINPUTINFO(ctypes.Structure):
+                _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+            lii = LASTINPUTINFO()
+            lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
+            if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii)):
+                millis = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
+                return max(0.0, millis / 1000.0)
+        except Exception:
+            pass
+    return 0.0
 
 
 def calculate_landmark_distance(pt1, pt2):
@@ -159,25 +178,30 @@ class VisionPipeline:
         self.yaw_threshold = yaw_threshold
         self.pitch_threshold = pitch_threshold
         self.away_duration_threshold = away_duration_threshold
+        self.mobile_pitch_threshold = -11.0  # Downward pitch threshold for mobile distraction
+        self.mobile_duration_threshold = 2.0  # Sustained seconds of downward gaze + PC inactivity
         self.camera_index = camera_index
 
         self.face_mesh = mp.solutions.face_mesh.FaceMesh(
-            max_num_faces=1,
+            max_num_faces=4,
             refine_landmarks=True,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         )
 
+        self.user_tracker = get_user_tracker()
         self.cap = None
         self._last_cap_attempt = 0.0
         self.closed_eye_start_time = None
         self.away_start_time = None
+        self.mobile_start_time = None
         self.last_state = "ACTIVE"
 
     def reset_timers(self):
         """Reset state tracking timers."""
         self.closed_eye_start_time = None
         self.away_start_time = None
+        self.mobile_start_time = None
         self.last_state = "ACTIVE"
 
     def _get_camera_frame(self):
@@ -212,20 +236,25 @@ class VisionPipeline:
             current_time = time.time()
 
         if frame is None:
-            # No frame or camera offline -> treated as Away
+            # No frame or camera offline -> treated as Abandoned / Away
             if self.away_start_time is None:
                 self.away_start_time = current_time
             away_duration = current_time - self.away_start_time
             state = "IDLE" if away_duration >= self.away_duration_threshold else "ACTIVE"
             return {
                 "state": state,
+                "sub_state": "ABANDONED",
                 "face_detected": False,
+                "primary_locked": False,
                 "ear": 0.0,
-                "eyes_closed": True,
+                "eyes_closed": False,
+                "is_drowsy": False,
+                "is_away": True,
                 "head_pose": (0.0, 0.0, 0.0),
                 "looking_away": True,
                 "sleep_duration": 0.0,
-                "away_duration": away_duration
+                "away_duration": away_duration,
+                "background_faces_count": 0
             }
 
         height, width = frame.shape[:2]
@@ -233,7 +262,7 @@ class VisionPipeline:
         results = self.face_mesh.process(rgb_frame)
 
         if not results.multi_face_landmarks:
-            # Face not found -> user is away
+            # Face not found -> user is away / desk abandoned
             if self.away_start_time is None:
                 self.away_start_time = current_time
             self.closed_eye_start_time = None
@@ -243,16 +272,52 @@ class VisionPipeline:
             self.last_state = state
             return {
                 "state": state,
+                "sub_state": "ABANDONED",
                 "face_detected": False,
+                "primary_locked": False,
                 "ear": 0.0,
                 "eyes_closed": False,
+                "is_drowsy": False,
+                "is_away": True,
                 "head_pose": (0.0, 0.0, 0.0),
                 "looking_away": True,
                 "sleep_duration": 0.0,
-                "away_duration": away_duration
+                "away_duration": away_duration,
+                "background_faces_count": 0
             }
 
-        landmarks = results.multi_face_landmarks[0].landmark
+        # Multi-Face Discrimination & Primary User Focus Lock
+        primary_lm, primary_box, background_boxes = self.user_tracker.find_primary_user(
+            results.multi_face_landmarks, (height, width)
+        )
+
+        if primary_lm is None:
+            # Enrolled primary user is NOT found (e.g. only background people/passersby detected!)
+            if self.away_start_time is None:
+                self.away_start_time = current_time
+            self.closed_eye_start_time = None
+
+            away_duration = current_time - self.away_start_time
+            state = "IDLE" if away_duration >= self.away_duration_threshold else "ACTIVE"
+            self.last_state = state
+            return {
+                "state": state,
+                "sub_state": "ABANDONED",
+                "face_detected": False,
+                "primary_locked": False,
+                "ear": 0.0,
+                "eyes_closed": False,
+                "is_drowsy": False,
+                "is_away": True,
+                "head_pose": (0.0, 0.0, 0.0),
+                "looking_away": True,
+                "sleep_duration": 0.0,
+                "away_duration": away_duration,
+                "background_faces_count": len(background_boxes),
+                "background_boxes": background_boxes
+            }
+
+        landmarks = primary_lm.landmark
 
         # 1. Calculate EAR for left and right eyes
         left_eye_pts = {
@@ -298,26 +363,61 @@ class VisionPipeline:
         else:
             self.away_start_time = None
 
-        # Determine overall state
+        # Check for Mobile Phone Distraction:
+        # Downward pitch (looking down at lap/phone) combined with PC input inactivity (> 2.5s)
+        pc_idle_sec = get_system_idle_time()
+        is_looking_down = (pitch <= self.mobile_pitch_threshold)
+        mobile_distracted_inst = is_looking_down and (pc_idle_sec >= 2.5)
+
+        mobile_duration = 0.0
+        if mobile_distracted_inst:
+            if self.mobile_start_time is None:
+                self.mobile_start_time = current_time
+            mobile_duration = current_time - self.mobile_start_time
+        else:
+            self.mobile_start_time = None
+
+        is_using_mobile = (self.mobile_start_time is not None) and (mobile_duration >= self.mobile_duration_threshold)
+
+        # Determine overall state and granular sub-state
         is_sleeping = (self.closed_eye_start_time is not None) and (sleep_duration >= self.sleep_duration_threshold)
         is_away = (self.away_start_time is not None) and (away_duration >= self.away_duration_threshold)
 
-        if is_sleeping or is_away:
+        if is_sleeping:
             state = "IDLE"
+            sub_state = "DROWSY"
+        elif is_using_mobile:
+            state = "IDLE"
+            sub_state = "MOBILE_DISTRACTION"
+        elif is_away:
+            state = "IDLE"
+            sub_state = "LOOKING_AWAY"
         else:
             state = "ACTIVE"
+            sub_state = "FOCUSED"
 
         self.last_state = state
 
         return {
             "state": state,
+            "sub_state": sub_state,
             "face_detected": True,
+            "primary_locked": True,
+            "confidence": primary_box.get("confidence", 1.0) if primary_box else 1.0,
             "ear": avg_ear,
             "eyes_closed": eyes_closed,
+            "is_drowsy": is_sleeping,
+            "is_away": is_away,
+            "is_mobile_distracted": is_using_mobile,
+            "mobile_duration": mobile_duration,
+            "pc_idle_seconds": round(pc_idle_sec, 2),
             "head_pose": (pitch, yaw, roll),
             "looking_away": looking_away,
             "sleep_duration": sleep_duration,
-            "away_duration": away_duration
+            "away_duration": away_duration,
+            "bounding_box": primary_box,
+            "background_faces_count": len(background_boxes),
+            "background_boxes": background_boxes
         }
 
     def get_vision_state(self, frame=None, current_time=None):
@@ -329,6 +429,15 @@ class VisionPipeline:
             frame = self._get_camera_frame()
         result = self.process_frame(frame, current_time=current_time)
         return result["state"]
+
+    def get_vision_substate(self, frame=None, current_time=None):
+        """
+        Returns granular sub-state: "FOCUSED", "DROWSY", "MOBILE_DISTRACTION", "LOOKING_AWAY", or "ABANDONED".
+        """
+        if frame is None:
+            frame = self._get_camera_frame()
+        result = self.process_frame(frame, current_time=current_time)
+        return result["sub_state"]
 
     def close(self):
         """Release camera and FaceMesh resources."""
@@ -352,14 +461,17 @@ class VisionPipeline:
 # Module-level default pipeline singleton
 _default_pipeline = None
 _mock_vision_state = None
+_mock_vision_substate = None
+_last_vision_substate = "FOCUSED"
 
 
-def set_mock_vision_state(state):
+def set_mock_vision_state(state, sub_state=None):
     """Sets a mock state for testing or simulation ('ACTIVE', 'IDLE', or None to revert)."""
-    global _mock_vision_state
+    global _mock_vision_state, _mock_vision_substate
     if state is not None and state not in ("ACTIVE", "IDLE"):
         raise ValueError("Vision state must be either 'ACTIVE', 'IDLE', or None")
     _mock_vision_state = state
+    _mock_vision_substate = sub_state
 
 
 def get_vision_state(frame=None, current_time=None):
@@ -375,4 +487,16 @@ def get_vision_state(frame=None, current_time=None):
     if _default_pipeline is None:
         _default_pipeline = VisionPipeline()
     return _default_pipeline.get_vision_state(frame=frame, current_time=current_time)
+
+
+def get_vision_substate(frame=None, current_time=None):
+    """
+    Returns granular sub-state: "FOCUSED", "DROWSY", "MOBILE_DISTRACTION", "LOOKING_AWAY", or "ABANDONED".
+    """
+    global _default_pipeline, _mock_vision_substate, _last_vision_substate
+    if _mock_vision_substate is not None:
+        return _mock_vision_substate
+    if _default_pipeline is None:
+        _default_pipeline = VisionPipeline()
+    return _default_pipeline.get_vision_substate(frame=frame, current_time=current_time)
 

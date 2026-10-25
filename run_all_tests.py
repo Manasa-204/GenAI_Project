@@ -41,6 +41,12 @@ TEST_SUITES = [
         "name": "System Orchestration: Zero-Balance, Earn-and-Burn & Graceful Exit",
         "command": [sys.executable, "test_system_orchestration.py"],
         "checkpoint": "Checkpoint 3 (Sprint 3 & 4)"
+    },
+    {
+        "id": "ENF_ATTENTION",
+        "name": "Primary User Lock, 3D Kinematics, Mobile Distraction & YouTube Enforcement",
+        "command": [sys.executable, "test_enforcement_cases.py"],
+        "checkpoint": "Enforcement & 3D Learning"
     }
 ]
 

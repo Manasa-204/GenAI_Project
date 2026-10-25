@@ -87,6 +87,7 @@ def run_orchestrator_step(
     if current_balance <= 0 and semantic_state == "DISTRACTION":
         print(f"[main] Enforcement Rule Triggered: Balance <= 0 ({current_balance}s) & Distraction active.")
         enforcement.block_distractions()
+        enforcement.enforce_active_distraction()
     elif current_balance > 0:
         if enforcement.is_distraction_blocked():
             print(f"[main] Balance positive ({current_balance}s): Restoring access.")
@@ -265,7 +266,17 @@ def main():
         default=5.0,
         help="Focused recovery period in seconds before unblocking (default: 5.0s)"
     )
+    parser.add_argument(
+        "--enroll",
+        action="store_true",
+        help="Calibrate and enroll primary user via webcam"
+    )
     args = parser.parse_args()
+
+    if args.enroll:
+        import user_tracker
+        user_tracker.run_cli_enrollment()
+        return
 
     if args.hud:
         run_hud_mode(args)

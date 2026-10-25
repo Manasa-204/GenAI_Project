@@ -159,8 +159,22 @@ def evaluate_cycle(
     elif vision_state == "IDLE" and semantic_state == "EDUCATIONAL":
         verdict = "VISION_OVERRIDE"
         delta = -1
-        reason = "Vision override: User idle/eyes closed despite educational window"
-        print(f"[{now_iso}] [OVERRIDE] Inactive on Study Material (Vision override) ({delta}s)")
+        sub_info = ""
+        if vision_pipeline and hasattr(vision_pipeline, "get_vision_substate"):
+            try:
+                sub_info = vision_pipeline.get_vision_substate()
+            except Exception:
+                pass
+
+        if sub_info == "MOBILE_DISTRACTION":
+            reason = "Vision override: Mobile phone distraction (downward gaze/inactivity)"
+            print(f"[{now_iso}] [OVERRIDE] Mobile Phone Distraction detected (Vision override) ({delta}s)")
+        elif sub_info == "ABANDONED":
+            reason = "Vision override: User away / Desk abandoned"
+            print(f"[{now_iso}] [OVERRIDE] User Away / Desk Abandoned (Vision override) ({delta}s)")
+        else:
+            reason = "Vision override: User idle/eyes closed despite educational window"
+            print(f"[{now_iso}] [OVERRIDE] Inactive on Study Material (Vision override) ({delta}s)")
 
     elif semantic_state == "DISTRACTION":
         verdict = "DISTRACTION"

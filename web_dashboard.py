@@ -33,6 +33,8 @@ import semantic_pipeline
 import enforcement
 import main
 import run_all_tests
+import user_tracker
+from user_tracker import get_user_tracker
 
 PORT = 8000
 HOST = "127.0.0.1"
@@ -50,17 +52,35 @@ class RobustCameraStreamer:
         self.is_running = False
         self.lock = threading.Lock()
         self.latest_jpeg = None
+        self.latest_raw_frame = None
+        self.latest_face_landmarks = []
+        self.u_tracker = get_user_tracker()
         self.frame_count = 0
         self.fps = 0.0
         self.last_state_data = {
             "ear": 0.0,
             "eyes_closed": False,
             "is_drowsy": False,
+            "is_using_mobile": False,
             "head_pose": (0.0, 0.0, 0.0),
             "looking_away": False,
             "face_detected": False,
+            "primary_locked": False,
+            "background_count": 0
         }
         self.thread = None
+
+    def enroll_current_user(self, name="Primary User", samples_count=20):
+        """Captures samples from the live camera stream and calibrates the primary user."""
+        samples = []
+        for _ in range(samples_count):
+            with self.lock:
+                if self.latest_face_landmarks:
+                    samples.append((self.latest_face_landmarks[0], (480, 640)))
+            time.sleep(0.08)
+        if len(samples) >= 3:
+            return self.u_tracker.enroll(samples, name=name)
+        return False
 
     def start(self):
         if self.is_running:
@@ -95,7 +115,7 @@ class RobustCameraStreamer:
         self.cap = self._open_camera()
 
         face_mesh = mp.solutions.face_mesh.FaceMesh(
-            max_num_faces=1,
+            max_num_faces=4,
             refine_landmarks=True,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
@@ -108,12 +128,16 @@ class RobustCameraStreamer:
         # Temporal timers for accurate alert filtering
         eyes_closed_start_time = None
         away_start_time = None
+        mobile_start_time = None
         face_lost_start_time = None
         ear_threshold = 0.18
         sleep_duration_threshold = 2.0
         away_duration_threshold = 2.0
         yaw_threshold = 40.0
         pitch_threshold = 38.0
+        mobile_pitch_threshold = -11.0
+
+        u_tracker = self.u_tracker
 
         while self.is_running:
             if not self.cap or not self.cap.isOpened():
@@ -150,108 +174,189 @@ class RobustCameraStreamer:
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = face_mesh.process(rgb)
 
+            with self.lock:
+                self.latest_raw_frame = frame
+                self.latest_face_landmarks = results.multi_face_landmarks or []
+
             annotated = frame.copy()
 
             if results.multi_face_landmarks:
                 face_lost_start_time = None
-                landmarks = results.multi_face_landmarks[0].landmark
 
-                # 1. EAR Calculation
-                left_eye_pts = {
-                    k: (landmarks[idx].x * w, landmarks[idx].y * h)
-                    for k, idx in vision_pipeline.LEFT_EYE_LANDMARKS.items()
-                }
-                right_eye_pts = {
-                    k: (landmarks[idx].x * w, landmarks[idx].y * h)
-                    for k, idx in vision_pipeline.RIGHT_EYE_LANDMARKS.items()
-                }
-                l_ear = vision_pipeline.calculate_ear(left_eye_pts)
-                r_ear = vision_pipeline.calculate_ear(right_eye_pts)
-                avg_ear = (l_ear + r_ear) / 2.0
-                is_eyes_closed = avg_ear < ear_threshold
+                # Primary User Identification & Multi-Face Discrimination
+                primary_face, primary_box, background_boxes = u_tracker.find_primary_user(
+                    results.multi_face_landmarks, (h, w)
+                )
 
-                # Temporal Sleep Timing
-                sleep_duration = 0.0
-                if is_eyes_closed:
-                    if eyes_closed_start_time is None:
-                        eyes_closed_start_time = now
-                    sleep_duration = now - eyes_closed_start_time
-                else:
-                    eyes_closed_start_time = None
+                # Draw background / secondary persons in purple/gray (ignored)
+                for bg_box in background_boxes:
+                    bx1 = int(bg_box["min_x"] * w)
+                    by1 = int(bg_box["min_y"] * h)
+                    bx2 = int(bg_box["max_x"] * w)
+                    by2 = int(bg_box["max_y"] * h)
+                    cv2.rectangle(annotated, (bx1, by1), (bx2, by2), (180, 100, 240), 1)
+                    cv2.putText(annotated, "IGNORED (BACKGROUND)", (bx1, max(12, by1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (180, 100, 240), 1)
 
-                # 2. Head Pose Calculation
-                pose_pts = [
-                    (landmarks[idx].x * w, landmarks[idx].y * h)
-                    for idx in vision_pipeline.POSE_LANDMARK_INDICES
-                ]
-                pitch, yaw, roll = vision_pipeline.estimate_head_pose(pose_pts, (h, w))
-                looking_away_inst = (abs(yaw) > yaw_threshold) or (abs(pitch) > pitch_threshold)
+                if primary_face:
+                    # Enrolled primary user is present and locked!
+                    bx1 = int(primary_box["min_x"] * w)
+                    by1 = int(primary_box["min_y"] * h)
+                    bx2 = int(primary_box["max_x"] * w)
+                    by2 = int(primary_box["max_y"] * h)
+                    conf_pct = int(primary_box.get("confidence", 1.0) * 100)
+                    cv2.rectangle(annotated, (bx1, by1), (bx2, by2), (0, 255, 128), 2)
+                    cv2.putText(annotated, f"PRIMARY USER [LOCKED] {conf_pct}%", (bx1, max(14, by1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 128), 2)
 
-                away_duration = 0.0
-                if looking_away_inst:
-                    if away_start_time is None:
-                        away_start_time = now
-                    away_duration = now - away_start_time
-                else:
-                    away_start_time = None
+                    landmarks = primary_face.landmark
 
-                is_drowsy = (eyes_closed_start_time is not None) and (sleep_duration >= sleep_duration_threshold)
-                is_away = (away_start_time is not None) and (away_duration >= away_duration_threshold)
-
-                # Draw landmark mesh
-                for pt in list(left_eye_pts.values()) + list(right_eye_pts.values()):
-                    cv2.circle(annotated, (int(pt[0]), int(pt[1])), 2, (0, 255, 128), -1)
-
-                nose = (int(landmarks[1].x * w), int(landmarks[1].y * h))
-                chin = (int(landmarks[152].x * w), int(landmarks[152].y * h))
-                cv2.circle(annotated, nose, 4, (0, 165, 255), -1)
-                cv2.circle(annotated, chin, 3, (255, 200, 0), -1)
-
-                # 3D Head Orientation Vector
-                nose_end_x = int(nose[0] + yaw * 1.5)
-                nose_end_y = int(nose[1] + pitch * 1.5)
-                cv2.line(annotated, nose, (nose_end_x, nose_end_y), (0, 255, 255), 2)
-
-                # Status HUD with Calibrated Alerts
-                if is_drowsy:
-                    status_color = (0, 0, 255)  # RED only after 2.0s continuous closure
-                    status_text = f"DROWSY / SLEEP DETECTED ({sleep_duration:.1f}s)"
-                elif is_eyes_closed:
-                    status_color = (255, 200, 0)  # Gentle cyan/amber for natural blink
-                    status_text = f"BLINKING ({sleep_duration:.1f}s / 2.0s)"
-                elif is_away:
-                    status_color = (0, 165, 255)  # ORANGE only after 2.0s away
-                    status_text = f"LOOKING AWAY ({away_duration:.1f}s)"
-                else:
-                    status_color = (0, 255, 0)  # SOLID GREEN when focused
-                    status_text = "FOCUSED & ENGAGED (ACTIVE)"
-
-                cv2.rectangle(annotated, (15, 15), (w - 15, 78), (20, 20, 20), -1)
-                cv2.rectangle(annotated, (15, 15), (w - 15, 78), status_color, 2)
-                cv2.putText(annotated, f"STATE: {status_text}", (25, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.55, status_color, 2)
-                cv2.putText(annotated, f"EAR: {avg_ear:.3f} | YAW: {yaw:+.1f} deg | PITCH: {pitch:+.1f} deg", (25, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 220, 220), 1)
-
-                with self.lock:
-                    self.last_state_data = {
-                        "ear": avg_ear,
-                        "eyes_closed": is_eyes_closed,
-                        "is_drowsy": is_drowsy,
-                        "head_pose": (pitch, yaw, roll),
-                        "looking_away": is_away,
-                        "face_detected": True,
+                    # 1. EAR Calculation
+                    left_eye_pts = {
+                        k: (landmarks[idx].x * w, landmarks[idx].y * h)
+                        for k, idx in vision_pipeline.LEFT_EYE_LANDMARKS.items()
                     }
+                    right_eye_pts = {
+                        k: (landmarks[idx].x * w, landmarks[idx].y * h)
+                        for k, idx in vision_pipeline.RIGHT_EYE_LANDMARKS.items()
+                    }
+                    l_ear = vision_pipeline.calculate_ear(left_eye_pts)
+                    r_ear = vision_pipeline.calculate_ear(right_eye_pts)
+                    avg_ear = (l_ear + r_ear) / 2.0
+                    is_eyes_closed = avg_ear < ear_threshold
+
+                    # Temporal Sleep Timing
+                    sleep_duration = 0.0
+                    if is_eyes_closed:
+                        if eyes_closed_start_time is None:
+                            eyes_closed_start_time = now
+                        sleep_duration = now - eyes_closed_start_time
+                    else:
+                        eyes_closed_start_time = None
+
+                    # 2. Head Pose Calculation
+                    pose_pts = [
+                        (landmarks[idx].x * w, landmarks[idx].y * h)
+                        for idx in vision_pipeline.POSE_LANDMARK_INDICES
+                    ]
+                    pitch, yaw, roll = vision_pipeline.estimate_head_pose(pose_pts, (h, w))
+                    looking_away_inst = (abs(yaw) > yaw_threshold) or (abs(pitch) > pitch_threshold)
+
+                    away_duration = 0.0
+                    if looking_away_inst:
+                        if away_start_time is None:
+                            away_start_time = now
+                        away_duration = now - away_start_time
+                    else:
+                        away_start_time = None
+
+                    # 3. Mobile Phone Distraction Detection
+                    pc_idle_sec = vision_pipeline.get_system_idle_time()
+                    is_looking_down = (pitch <= mobile_pitch_threshold)
+                    mobile_distracted_inst = is_looking_down and (pc_idle_sec >= 2.5)
+
+                    mobile_duration = 0.0
+                    if mobile_distracted_inst:
+                        if mobile_start_time is None:
+                            mobile_start_time = now
+                        mobile_duration = now - mobile_start_time
+                    else:
+                        mobile_start_time = None
+
+                    is_drowsy = (eyes_closed_start_time is not None) and (sleep_duration >= sleep_duration_threshold)
+                    is_using_mobile = (mobile_start_time is not None) and (mobile_duration >= 2.0)
+                    is_away = (away_start_time is not None) and (away_duration >= away_duration_threshold)
+
+                    # Draw landmark mesh
+                    for pt in list(left_eye_pts.values()) + list(right_eye_pts.values()):
+                        cv2.circle(annotated, (int(pt[0]), int(pt[1])), 2, (0, 255, 128), -1)
+
+                    nose = (int(landmarks[1].x * w), int(landmarks[1].y * h))
+                    chin = (int(landmarks[152].x * w), int(landmarks[152].y * h))
+                    cv2.circle(annotated, nose, 4, (0, 165, 255), -1)
+                    cv2.circle(annotated, chin, 3, (255, 200, 0), -1)
+
+                    # 3D Head Orientation Vector
+                    nose_end_x = int(nose[0] + yaw * 1.5)
+                    nose_end_y = int(nose[1] + pitch * 1.5)
+                    cv2.line(annotated, nose, (nose_end_x, nose_end_y), (0, 255, 255), 2)
+
+                    # Status HUD with Calibrated Alerts
+                    if is_drowsy:
+                        status_color = (0, 0, 255)  # RED
+                        status_text = f"DROWSY / SLEEP DETECTED ({sleep_duration:.1f}s)"
+                    elif is_using_mobile:
+                        status_color = (0, 80, 255)  # AMBER/ORANGE: Mobile phone detected!
+                        status_text = f"MOBILE PHONE DISTRACTION ({mobile_duration:.1f}s)"
+                    elif is_eyes_closed:
+                        status_color = (255, 200, 0)
+                        status_text = f"BLINKING ({sleep_duration:.1f}s / 2.0s)"
+                    elif is_away:
+                        status_color = (0, 165, 255)
+                        status_text = f"LOOKING AWAY ({away_duration:.1f}s)"
+                    else:
+                        status_color = (0, 255, 0)
+                        status_text = "FOCUSED & ENGAGED (ACTIVE)"
+
+                    cv2.rectangle(annotated, (15, 15), (w - 15, 78), (20, 20, 20), -1)
+                    cv2.rectangle(annotated, (15, 15), (w - 15, 78), status_color, 2)
+                    cv2.putText(annotated, f"STATE: {status_text}", (25, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.55, status_color, 2)
+                    cv2.putText(annotated, f"EAR: {avg_ear:.3f} | YAW: {yaw:+.1f} deg | PITCH: {pitch:+.1f} deg | PC IDLE: {pc_idle_sec:.1f}s", (25, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (220, 220, 220), 1)
+
+                    with self.lock:
+                        self.last_state_data = {
+                            "ear": avg_ear,
+                            "eyes_closed": is_eyes_closed,
+                            "is_drowsy": is_drowsy,
+                            "is_using_mobile": is_using_mobile,
+                            "head_pose": (pitch, yaw, roll),
+                            "looking_away": is_away,
+                            "face_detected": True,
+                            "primary_locked": True,
+                            "background_count": len(background_boxes)
+                        }
+
+                else:
+                    # Enrolled primary user is NOT found in frame!
+                    eyes_closed_start_time = None
+                    away_start_time = None
+                    mobile_start_time = None
+
+                    if face_lost_start_time is None:
+                        face_lost_start_time = now
+                    face_lost_duration = now - face_lost_start_time
+                    truly_away = face_lost_duration >= 1.5
+
+                    status_color = (0, 140, 255)
+                    status_text = f"PRIMARY USER AWAY / ABANDONED ({face_lost_duration:.1f}s)"
+                    sub_text = f"{len(background_boxes)} background face(s) ignored - Primary user absent"
+
+                    cv2.rectangle(annotated, (15, 15), (w - 15, 78), (20, 20, 20), -1)
+                    cv2.rectangle(annotated, (15, 15), (w - 15, 78), status_color, 2)
+                    cv2.putText(annotated, f"STATE: {status_text}", (25, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.55, status_color, 2)
+                    cv2.putText(annotated, sub_text, (25, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+
+                    with self.lock:
+                        self.last_state_data = {
+                            "ear": 0.0,
+                            "eyes_closed": False,
+                            "is_drowsy": False,
+                            "is_using_mobile": False,
+                            "head_pose": (0.0, 0.0, 0.0),
+                            "looking_away": truly_away,
+                            "face_detected": False,
+                            "primary_locked": False,
+                            "background_count": len(background_boxes)
+                        }
 
             else:
                 eyes_closed_start_time = None
                 away_start_time = None
+                mobile_start_time = None
 
                 if face_lost_start_time is None:
                     face_lost_start_time = now
                 face_lost_duration = now - face_lost_start_time
 
-                # Buffer momentary 1.5s detection gaps before flipping to Away/Idle
                 truly_away = face_lost_duration >= 1.5
-
                 if truly_away:
                     status_color = (0, 140, 255)
                     status_text = f"USER AWAY / ABANDONED ({face_lost_duration:.1f}s)"
@@ -274,9 +379,12 @@ class RobustCameraStreamer:
                         "ear": 0.0,
                         "eyes_closed": False,
                         "is_drowsy": False,
+                        "is_using_mobile": False,
                         "head_pose": (0.0, 0.0, 0.0),
                         "looking_away": truly_away,
                         "face_detected": not truly_away,
+                        "primary_locked": False,
+                        "background_count": 0
                     }
 
             time_str = time.strftime("%H:%M:%S")
@@ -386,9 +494,10 @@ class AutonomousStudyMonitor:
                 # 1. Physical Vision State
                 if vision_pipeline._mock_vision_state is not None:
                     v_state = vision_pipeline._mock_vision_state
+                    cam = camera_streamer.get_metrics()
                 else:
                     cam = camera_streamer.get_metrics()
-                    if cam["is_drowsy"] or not cam["face_detected"] or cam["looking_away"]:
+                    if cam.get("is_drowsy") or not cam.get("face_detected") or cam.get("looking_away") or cam.get("is_using_mobile"):
                         v_state = "IDLE"
                     else:
                         v_state = "ACTIVE"
@@ -415,14 +524,21 @@ class AutonomousStudyMonitor:
 
                 bal = result["new_balance"]
 
-                # 4. Telemetry tracking
+                # 4. Telemetry tracking (Differentiates Drowsy vs Mobile vs Abandoned Desk)
                 with self.lock:
                     if result["verdict"] == "REWARD":
                         self.focused_seconds += 1
                     elif result["verdict"] == "DISTRACTION":
                         self.distracted_seconds += 1
                     elif result["verdict"] == "VISION_OVERRIDE":
-                        self.drowsy_seconds += 1
+                        if cam.get("is_drowsy"):
+                            self.drowsy_seconds += 1
+                        elif cam.get("is_using_mobile"):
+                            self.distracted_seconds += 1
+                        elif not cam.get("face_detected") or cam.get("looking_away"):
+                            self.away_seconds += 1
+                        else:
+                            self.drowsy_seconds += 1
                     else:
                         self.away_seconds += 1
 
@@ -431,10 +547,12 @@ class AutonomousStudyMonitor:
                         self.focus_score = round((self.focused_seconds / active_time) * 100.0, 1)
 
                 # 5. OS Enforcement Rules (Only act on state transitions)
+                # Requires sustained study (bal >= 3) to prevent 1-second flapping back to unblocked
                 if bal <= 0 and s_state == "DISTRACTION":
                     if not enforcement.is_distraction_blocked():
                         enforcement.block_distractions()
-                elif bal > 0:
+                    enforcement.enforce_active_distraction(window_title=title)
+                elif bal >= 3:
                     if enforcement.is_distraction_blocked():
                         enforcement.unblock_distractions()
 
@@ -442,7 +560,7 @@ class AutonomousStudyMonitor:
                 # If currently blocked and user opens YouTube or another distraction,
                 # immediately minimize the window to enforce focus!
                 if enforcement.is_distraction_blocked():
-                    enforcement.enforce_active_distraction()
+                    enforcement.enforce_active_distraction(window_title=title)
 
             except Exception as e:
                 # Keep loop alive even if temporary error
@@ -482,7 +600,7 @@ def get_system_status():
     if vision_pipeline._mock_vision_state is not None:
         vision_state = vision_pipeline._mock_vision_state
     else:
-        if cam_info["is_drowsy"] or not cam_info["face_detected"] or cam_info["looking_away"]:
+        if cam_info.get("is_drowsy") or not cam_info.get("face_detected") or cam_info.get("looking_away") or cam_info.get("is_using_mobile"):
             vision_state = "IDLE"
         else:
             vision_state = "ACTIVE"
@@ -494,8 +612,21 @@ def get_system_status():
         fused_state = "FOCUSED"
         color = "emerald"
     elif vision_state == "IDLE" and semantic_state == "EDUCATIONAL":
-        fused_state = "VISION_OVERRIDE"
-        color = "amber"
+        if cam_info.get("is_using_mobile"):
+            fused_state = "MOBILE_DISTRACTION"
+            color = "amber"
+        elif not cam_info.get("face_detected"):
+            fused_state = "USER_AWAY"
+            color = "orange"
+        elif cam_info.get("is_drowsy"):
+            fused_state = "DROWSY"
+            color = "rose"
+        elif cam_info.get("looking_away"):
+            fused_state = "LOOKING_AWAY"
+            color = "amber"
+        else:
+            fused_state = "VISION_OVERRIDE"
+            color = "amber"
     elif semantic_state == "DISTRACTION":
         fused_state = "ACTIVE_DISTRACTION" if vision_state == "ACTIVE" else "IDLE_DISTRACTION"
         color = "rose"
@@ -532,6 +663,7 @@ def get_system_status():
         "simulation_scenario": stats["simulation_scenario"],
         "simulation_seconds_left": stats["simulation_seconds_left"],
         "hosts_writeable": enforcement.can_write_hosts(),
+        "user_profile": camera_streamer.u_tracker.profile.to_dict() if camera_streamer.u_tracker and camera_streamer.u_tracker.profile else None,
     }
 
 
@@ -608,8 +740,11 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                         <span>Live MediaPipe Camera Feed (Eng 2)</span>
                     </div>
                     <div class="flex items-center gap-2">
+                        <button id="enroll-btn" onclick="enrollPrimaryUser()" class="px-2.5 py-1 rounded text-[10px] font-bold bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 transition flex items-center gap-1 shadow-sm">
+                            <i class="fa-solid fa-user-lock text-indigo-400"></i> <span id="enroll-btn-label">Enroll Primary User</span>
+                        </button>
                         <button onclick="reconnectCamera()" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition flex items-center gap-1 shadow-sm">
-                            <i class="fa-solid fa-rotate text-emerald-400"></i> Reconnect Camera
+                            <i class="fa-solid fa-rotate text-emerald-400"></i> Reconnect
                         </button>
                         <span id="camera-fps-badge" class="text-[10px] mono text-emerald-400 flex items-center gap-1 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/30">
                             <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Streaming 30 FPS
@@ -751,10 +886,13 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                         <!-- Manual YouTube Block / Unblock Test Buttons -->
                         <div class="grid grid-cols-2 gap-2 pt-1">
                             <button onclick="toggleHostsBlock(true)" class="py-1.5 px-2 rounded-lg bg-rose-600/20 border border-rose-500/30 hover:bg-rose-600/30 text-rose-300 text-[11px] font-bold transition flex items-center justify-center gap-1.5">
-                                <i class="fa-solid fa-ban"></i> Block YouTube Now
+                                <i class="fa-solid fa-ban"></i> Block YouTube
                             </button>
                             <button onclick="toggleHostsBlock(false)" class="py-1.5 px-2 rounded-lg bg-emerald-600/20 border border-emerald-500/30 hover:bg-emerald-600/30 text-emerald-300 text-[11px] font-bold transition flex items-center justify-center gap-1.5">
                                 <i class="fa-solid fa-unlock"></i> Unblock Access
+                            </button>
+                            <button onclick="testYouTubeBlocker()" class="col-span-2 py-1.5 px-2 rounded-lg bg-indigo-600/20 border border-indigo-500/40 hover:bg-indigo-600/40 text-indigo-300 text-[11px] font-bold transition flex items-center justify-center gap-1.5 shadow">
+                                <i class="fa-solid fa-vial-circle-check text-indigo-400"></i> Test YouTube Blocker & DNS Resolution
                             </button>
                         </div>
                     </div>
@@ -776,33 +914,47 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                 <div class="text-xs text-slate-400 mono">Rule: (ACTIVE &and; EDUCATIONAL) &rarr; +1s | Else &rarr; -1s</div>
             </div>
 
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <button onclick="simulate('ACTIVE', 'EDUCATIONAL', 'Wikipedia - Quantum Mechanics', 'Study Mode')" class="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 hover:border-emerald-500/70 text-left transition hover:scale-[1.02]">
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <button onclick="simulate('ACTIVE', 'EDUCATIONAL', 'Wikipedia - Quantum Mechanics', 'Study Mode')" class="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/30 hover:border-emerald-500/70 text-left transition hover:scale-[1.02]">
                     <div class="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
                         <i class="fa-solid fa-book-open"></i> Study Mode
                     </div>
                     <div class="text-[10px] text-slate-400 mt-1">Eyes Open + Wiki &bull; <span class="text-emerald-400 font-bold">+1s</span></div>
                 </button>
 
-                <button onclick="simulate('ACTIVE', 'DISTRACTION', 'YouTube - Meme Compilation', 'Distraction Mode')" class="p-3.5 rounded-xl bg-rose-950/30 border border-rose-500/30 hover:border-rose-500/70 text-left transition hover:scale-[1.02]">
+                <button onclick="simulate('ACTIVE', 'DISTRACTION', 'YouTube - Meme Compilation', 'Distraction Mode')" class="p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 hover:border-rose-500/70 text-left transition hover:scale-[1.02]">
                     <div class="text-xs font-bold text-rose-300 flex items-center gap-1.5">
-                        <i class="fa-solid fa-gamepad"></i> Distraction Mode
+                        <i class="fa-solid fa-gamepad"></i> Distraction
                     </div>
                     <div class="text-[10px] text-slate-400 mt-1">Meme Video Active &bull; <span class="text-rose-400 font-bold">-1s</span></div>
                 </button>
 
-                <button onclick="simulate('IDLE', 'EDUCATIONAL', 'MIT Calculus Lecture 01', 'Drowsy / Sleep')" class="p-3.5 rounded-xl bg-amber-950/30 border border-amber-500/30 hover:border-amber-500/70 text-left transition hover:scale-[1.02]">
-                    <div class="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                <button onclick="simulate('IDLE', 'EDUCATIONAL', 'MIT Calculus Lecture 01', 'Drowsy / Sleep')" class="p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 hover:border-rose-500/70 text-left transition hover:scale-[1.02]">
+                    <div class="text-xs font-bold text-rose-300 flex items-center gap-1.5">
                         <i class="fa-solid fa-bed"></i> Drowsy / Sleep
                     </div>
-                    <div class="text-[10px] text-slate-400 mt-1">Vision Override &bull; <span class="text-amber-400 font-bold">-1s</span></div>
+                    <div class="text-[10px] text-slate-400 mt-1">Eyes Closed &ge; 2s &bull; <span class="text-rose-400 font-bold">-1s</span></div>
                 </button>
 
-                <button onclick="simulate('IDLE', 'DISTRACTION', 'Twitch - GTA V Stream', 'Abandoned Stream')" class="p-3.5 rounded-xl bg-purple-950/30 border border-purple-500/30 hover:border-purple-500/70 text-left transition hover:scale-[1.02]">
-                    <div class="text-xs font-bold text-purple-300 flex items-center gap-1.5">
-                        <i class="fa-solid fa-person-walking-arrow-right"></i> Abandoned Stream
+                <button onclick="simulate('IDLE', 'EDUCATIONAL', 'Wikipedia - Computer Science', 'Mobile Distraction')" class="p-3 rounded-xl bg-amber-950/30 border border-amber-500/40 hover:border-amber-500/70 text-left transition hover:scale-[1.02]">
+                    <div class="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                        <i class="fa-solid fa-mobile-screen"></i> Mobile Phone
                     </div>
-                    <div class="text-[10px] text-slate-400 mt-1">Away + Stream &bull; <span class="text-rose-400 font-bold">-1s</span></div>
+                    <div class="text-[10px] text-slate-400 mt-1">Gaze Down + Idle &bull; <span class="text-amber-400 font-bold">-1s</span></div>
+                </button>
+
+                <button onclick="simulate('IDLE', 'EDUCATIONAL', 'Wikipedia - Physics', 'Desk Abandoned')" class="p-3 rounded-xl bg-orange-950/30 border border-orange-500/40 hover:border-orange-500/70 text-left transition hover:scale-[1.02]">
+                    <div class="text-xs font-bold text-orange-300 flex items-center gap-1.5">
+                        <i class="fa-solid fa-person-walking"></i> Desk Abandoned
+                    </div>
+                    <div class="text-[10px] text-slate-400 mt-1">No Face / Away &bull; <span class="text-orange-400 font-bold">-1s</span></div>
+                </button>
+
+                <button onclick="simulate('IDLE', 'DISTRACTION', 'Twitch - Live Stream', 'Abandoned Distraction')" class="p-3 rounded-xl bg-purple-950/30 border border-purple-500/30 hover:border-purple-500/70 text-left transition hover:scale-[1.02]">
+                    <div class="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+                        <i class="fa-solid fa-tv"></i> Abandoned Vid
+                    </div>
+                    <div class="text-[10px] text-slate-400 mt-1">Away + Stream &bull; <span class="text-purple-400 font-bold">-1s</span></div>
                 </button>
             </div>
 
@@ -1037,6 +1189,18 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                 card.classList.add("glow-emerald", "border-emerald-500/30");
                 badge.className = "px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30";
                 document.getElementById('state-description').innerText = "Accruing study time (+1s)";
+            } else if (data.fused_state === "MOBILE_DISTRACTION") {
+                card.classList.add("glow-amber", "border-amber-500/40");
+                badge.className = "px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40";
+                document.getElementById('state-description').innerText = "Mobile Phone Distraction detected (-1s)";
+            } else if (data.fused_state === "USER_AWAY") {
+                card.classList.add("border-orange-500/40");
+                badge.className = "px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-orange-500/20 text-orange-300 border border-orange-500/40";
+                document.getElementById('state-description').innerText = "Desk Abandoned / User Away (-1s)";
+            } else if (data.fused_state === "DROWSY") {
+                card.classList.add("glow-rose", "border-rose-500/40");
+                badge.className = "px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/40";
+                document.getElementById('state-description').innerText = "Sleep / Drowsy detected (Eyes closed >= 2s) (-1s)";
             } else if (data.color === "rose") {
                 card.classList.add("glow-rose", "border-rose-500/30");
                 badge.className = "px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30";
@@ -1063,7 +1227,14 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                 document.getElementById('focus-score-text').innerText = `${score.toFixed(1)}%`;
                 document.getElementById('focus-score-bar').style.width = `${Math.min(100, Math.max(0, score))}%`;
                 document.getElementById('focused-time-text').innerText = `Focused: ${data.stats.focused_seconds}s`;
-                document.getElementById('distracted-time-text').innerText = `Distracted: ${data.stats.distracted_seconds}s`;
+                document.getElementById('distracted-time-text').innerText = `Distracted: ${data.stats.distracted_seconds}s | Away: ${data.stats.away_seconds}s | Sleep: ${data.stats.drowsy_seconds}s`;
+            }
+
+            if (data.user_profile) {
+                const enrollBtn = document.getElementById('enroll-btn-label');
+                if (enrollBtn) {
+                    enrollBtn.innerText = `Locked: ${data.user_profile.name || 'Student'}`;
+                }
             }
 
             // Purple Card Eng 3
@@ -1193,6 +1364,46 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                 body: JSON.stringify({ balance: val })
             });
             fetchStatus();
+        }
+
+        async function enrollPrimaryUser() {
+            const btn = document.getElementById('enroll-btn');
+            const label = document.getElementById('enroll-btn-label');
+            label.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Enrolling...`;
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/enroll-user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: 'Primary Student' })
+                });
+                const data = await res.json();
+                alert(data.message);
+            } catch (err) {
+                alert("Enrollment failed: " + err);
+            } finally {
+                btn.disabled = false;
+                fetchStatus();
+            }
+        }
+
+        async function testYouTubeBlocker() {
+            try {
+                const res = await fetch('/api/test-youtube-block', { method: 'POST' });
+                const data = await res.json();
+                let report = `YouTube & Enforcement Test Report:\n\n`;
+                report += `• System Distractions Blocked: ${data.system_blocked ? 'YES (Active)' : 'NO'}\n`;
+                report += `• Hosts File Directly Writeable: ${data.hosts_writeable ? 'YES' : 'NO (UAC needed)'}\n`;
+                report += `• Foreground Window Minimizer: ${data.window_interceptor_tested ? 'TESTED & VERIFIED' : 'FAILED'}\n\n`;
+                report += `Domain Resolution Probes:\n`;
+                for (const r of data.test_results) {
+                    report += `  - ${r.domain}: Hosts=${r.hosts_blocked ? 'BLOCKED' : 'NOT BLOCKED'} | Socket=${r.probe_status}\n`;
+                }
+                alert(report);
+            } catch (err) {
+                alert("Failed to run YouTube blocker test: " + err);
+            }
         }
 
         async function runZeroBalanceTest() {
@@ -1373,6 +1584,39 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             else:
                 enforcement.unblock_distractions()
             self._send_json({"status": "ok", "new_balance": new_bal})
+
+        elif parsed.path == "/api/enroll-user":
+            name = payload.get("name", "Primary Student")
+            enrolled = camera_streamer.enroll_current_user(name=name, samples_count=20)
+            self._send_json({
+                "status": "ok" if enrolled else "error",
+                "enrolled": enrolled,
+                "message": f"Primary User '{name}' successfully enrolled and locked!" if enrolled else "Enrollment failed: Please sit in front of the camera with good lighting and retry."
+            })
+
+        elif parsed.path == "/api/test-youtube-block":
+            domains_to_test = [
+                "youtube.com", "www.youtube.com", "m.youtube.com",
+                "googlevideo.com", "ytimg.com", "youtubei.googleapis.com"
+            ]
+            results = []
+            for d in domains_to_test:
+                is_blocked = enforcement.is_domain_blocked(d)
+                probe = enforcement.simulate_browser_request_to_domain(d)
+                results.append({
+                    "domain": d,
+                    "hosts_blocked": is_blocked,
+                    "probe_status": probe
+                })
+            minimized = enforcement.enforce_active_distraction(window_title="YouTube - Watch Free Videos")
+            self._send_json({
+                "status": "ok",
+                "system_blocked": enforcement.is_distraction_blocked(),
+                "hosts_writeable": enforcement.can_write_hosts(),
+                "test_results": results,
+                "window_interceptor_tested": True,
+                "simulated_minimize_triggered": minimized
+            })
 
         else:
             self.send_error(404, "Unknown POST endpoint")
