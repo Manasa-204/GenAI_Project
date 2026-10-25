@@ -140,14 +140,28 @@ Window: "{window_title}"
 Respond strictly with only ONE word: either "EDUCATIONAL" or "DISTRACTION". Do not include any other words or punctuation."""
 
 
+_window_cache = {}
+
+
+def clear_semantic_cache():
+    """Task 3.2: Clears the cached window title classifications."""
+    global _window_cache
+    _window_cache.clear()
+
+
 def classify_window_title(window_title, model=None, ollama_url=DEFAULT_OLLAMA_URL, timeout=15):
     """
     Queries local Ollama API to classify window_title into EDUCATIONAL or DISTRACTION.
+    Implements Task 3.2 caching so Ollama isn't queried unnecessarily when user hasn't switched tabs.
     """
     if not window_title or not window_title.strip():
         return "EDUCATIONAL"
 
-    clean = window_title.strip().lower()
+    clean_key = window_title.strip().lower()
+    if clean_key in _window_cache:
+        return _window_cache[clean_key]
+
+    clean = clean_key
 
     # Fast-path 1 (Explicit Distractions): Entertainment, gaming, meme compilations, video streams
     if any(k in clean for k in [
@@ -156,6 +170,7 @@ def classify_window_title(window_title, model=None, ollama_url=DEFAULT_OLLAMA_UR
         "dankmemes", "r/funny", "instagram", "twitter / x", "hulu", "disney+",
         "prime video", "roblox", "minecraft", "league of legends"
     ]):
+        _window_cache[clean_key] = "DISTRACTION"
         return "DISTRACTION"
 
     # Fast-path 2 (Study, Research, Development, Navigation & Workspace):
@@ -169,6 +184,7 @@ def classify_window_title(window_title, model=None, ollama_url=DEFAULT_OLLAMA_UR
         "study", "lecture", "learning", "classroom", "canvas", "blackboard", "moodle",
         "research", "paper", "reader", "pdf", "acrobat", "notion", "obsidian", "anki", "github"
     ]):
+        _window_cache[clean_key] = "EDUCATIONAL"
         return "EDUCATIONAL"
 
     target_model = resolve_model_name(model, ollama_url)
@@ -193,23 +209,27 @@ def classify_window_title(window_title, model=None, ollama_url=DEFAULT_OLLAMA_UR
         # Fallback keyword heuristic if Ollama service is unreachable
         clean = window_title.lower()
         if any(term in clean for term in ["calculus", "tutorial", "lecture", "coursera", "code", "learn", "study"]):
+            _window_cache[clean_key] = "EDUCATIONAL"
             return "EDUCATIONAL"
         if any(term in clean for term in ["meme", "compilation", "funny", "game", "tiktok", "reel"]):
+            _window_cache[clean_key] = "DISTRACTION"
             return "DISTRACTION"
         raise ConnectionError(f"Failed to communicate with Ollama at {endpoint}: {e}")
 
     # Extract classified label
     if "EDUCATIONAL" in raw_text:
-        return "EDUCATIONAL"
+        result = "EDUCATIONAL"
     elif "DISTRACTION" in raw_text:
-        return "DISTRACTION"
+        result = "DISTRACTION"
+    else:
+        tokens = re.findall(r"\b(EDUCATIONAL|DISTRACTION)\b", raw_text)
+        if tokens:
+            result = tokens[0]
+        else:
+            result = "DISTRACTION" if "MEME" in raw_text or "ENTERTAINMENT" in raw_text else "EDUCATIONAL"
 
-    # Default fallback based on tokens
-    tokens = re.findall(r"\b(EDUCATIONAL|DISTRACTION)\b", raw_text)
-    if tokens:
-        return tokens[0]
-
-    return "DISTRACTION" if "MEME" in raw_text or "ENTERTAINMENT" in raw_text else "EDUCATIONAL"
+    _window_cache[clean_key] = result
+    return result
 
 
 _mock_semantic_state = None
