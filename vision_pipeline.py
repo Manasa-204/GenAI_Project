@@ -6,6 +6,7 @@ Eye Aspect Ratio (EAR) for sleep/drowsiness detection, and Head Pose estimation 
 Task 1.2 Output: get_vision_state() returning "ACTIVE" or "IDLE".
 """
 
+import sys
 import time
 import math
 import numpy as np
@@ -168,6 +169,7 @@ class VisionPipeline:
         )
 
         self.cap = None
+        self._last_cap_attempt = 0.0
         self.closed_eye_start_time = None
         self.away_start_time = None
         self.last_state = "ACTIVE"
@@ -179,9 +181,22 @@ class VisionPipeline:
         self.last_state = "ACTIVE"
 
     def _get_camera_frame(self):
-        """Capture a frame from the webcam."""
+        """Capture a frame from the webcam (with backoff when camera unavailable)."""
+        now = time.time()
         if self.cap is None or not self.cap.isOpened():
-            self.cap = cv2.VideoCapture(self.camera_index)
+            # Back off 3s between connection attempts to avoid freezing thread
+            if now - getattr(self, "_last_cap_attempt", 0.0) < 3.0:
+                return None
+            self._last_cap_attempt = now
+            if sys.platform == "win32":
+                self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+            else:
+                self.cap = cv2.VideoCapture(self.camera_index)
+            if self.cap and self.cap.isOpened():
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+        if not self.cap or not self.cap.isOpened():
+            return None
 
         ret, frame = self.cap.read()
         if not ret or frame is None:
@@ -318,10 +333,20 @@ class VisionPipeline:
     def close(self):
         """Release camera and FaceMesh resources."""
         if self.cap is not None:
-            self.cap.release()
+            try:
+                self.cap.release()
+            except Exception:
+                pass
             self.cap = None
         if self.face_mesh is not None:
-            self.face_mesh.close()
+            try:
+                self.face_mesh.close()
+            except Exception:
+                pass
+            self.face_mesh = None
+
+    def __del__(self):
+        self.close()
 
 
 # Module-level default pipeline singleton

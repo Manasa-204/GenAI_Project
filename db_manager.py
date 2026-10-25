@@ -29,6 +29,7 @@ def get_default_db_path() -> str:
 
 
 DEFAULT_DB_PATH = get_default_db_path()
+_initialized_dbs = set()
 
 
 @contextmanager
@@ -36,10 +37,15 @@ def get_db(db_path: Optional[str] = None):
     """
     Context manager that yields a SQLite connection and guarantees
     the connection handle is closed immediately on exit (essential for Windows).
+    Uses WAL journal mode and a 30s busy timeout for rock-solid concurrency.
     """
     target_path = db_path or DEFAULT_DB_PATH
-    conn = sqlite3.connect(target_path)
+    conn = sqlite3.connect(target_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+    except Exception:
+        pass
     try:
         yield conn
     finally:
@@ -52,7 +58,16 @@ def init_db(db_path: Optional[str] = None) -> None:
     - user_state: Tracks current running balance.
     - time_logs: Records every balance change with timestamp and reason.
     """
-    with get_db(db_path) as conn:
+    target_path = db_path or DEFAULT_DB_PATH
+    if target_path in _initialized_dbs and os.path.exists(target_path):
+        return
+
+    # Ensure parent directory exists
+    dir_name = os.path.dirname(os.path.abspath(target_path))
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
+
+    with get_db(target_path) as conn:
         cursor = conn.cursor()
         
         # Table to store single-record current balance
@@ -82,6 +97,7 @@ def init_db(db_path: Optional[str] = None) -> None:
         """)
         
         conn.commit()
+    _initialized_dbs.add(target_path)
 
 
 def get_current_balance(db_path: Optional[str] = None) -> int:

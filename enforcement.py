@@ -128,7 +128,14 @@ def is_distraction_blocked(hosts_path=None) -> bool:
     """
     global _is_blocked_state
     if hosts_path is not None:
-        return is_domain_blocked("youtube.com", hosts_path=hosts_path)
+        if os.path.exists(hosts_path):
+            try:
+                with open(hosts_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                    return BLOCK_HEADER in content
+            except Exception:
+                pass
+        return False
     return _is_blocked_state
 
 
@@ -328,7 +335,7 @@ def is_domain_blocked(domain, hosts_path=None):
             if in_block and not line_str.startswith("#"):
                 parts = line_str.split()
                 if len(parts) >= 2 and parts[1].lower() == domain:
-                    if parts[0] in (REDIRECT_IPV4, REDIRECT_IPV6):
+                    if parts[0] in ("0.0.0.0", REDIRECT_IPV4, REDIRECT_IPV6):
                         return True
     return False
 

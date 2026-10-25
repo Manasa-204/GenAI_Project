@@ -51,6 +51,9 @@ DEFAULT_POLL_INTERVAL = 5.0  # seconds
 def init_research_log(csv_path: Optional[str] = None) -> str:
     """Ensures the research CSV file exists and has appropriate headers."""
     target_path = csv_path or DEFAULT_CSV_PATH
+    dir_name = os.path.dirname(os.path.abspath(target_path))
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
     if not os.path.exists(target_path) or os.path.getsize(target_path) == 0:
         with open(target_path, mode="w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -143,8 +146,8 @@ def evaluate_cycle(
     now_iso = datetime.now().isoformat()
     
     # 1. Acquire inputs
-    vision_state = vision_override or read_vision_state_safe()
-    semantic_state = semantic_override or read_semantic_state_safe()
+    vision_state = (vision_override or read_vision_state_safe() or "IDLE").strip().upper()
+    semantic_state = (semantic_override or read_semantic_state_safe() or "DISTRACTION").strip().upper()
 
     # 2. Evaluate the AND Gate
     if vision_state == "ACTIVE" and semantic_state == "EDUCATIONAL":

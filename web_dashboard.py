@@ -1384,6 +1384,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 def run_server(port=PORT):
     camera_streamer.start()
     study_monitor.start()
+    ThreadingHTTPServer.allow_reuse_address = True
     server = ThreadingHTTPServer((HOST, port), DashboardRequestHandler)
     print("=" * 65)
     print(f" DEMON THREADED WEB DASHBOARD ACTIVE: http://localhost:{port}")

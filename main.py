@@ -31,18 +31,23 @@ except ImportError:
     PhysicalState = None
 
 
+_cleaned_up = False
+
+
 def cleanup_on_exit():
     """
     Task 4.2: Graceful Shutdown Handler.
     Guarantees that distractions are unblocked upon program exit or crash,
     preventing the user from being locked out of websites.
     """
-    print("\n[main] Executing safe shutdown cleanup...")
+    global _cleaned_up
     try:
         enforcement.unblock_distractions()
-        print("[main] Distractions safely unblocked.")
+        if not _cleaned_up:
+            _cleaned_up = True
+            print("\n[main] Executing safe shutdown cleanup: Distractions unblocked.")
     except Exception as e:
-        print(f"[main] Warning during cleanup: {e}", file=sys.stderr)
+        print(f"\n[main] Warning during cleanup: {e}", file=sys.stderr)
 
 
 # Register exit handlers for unexpected termination

@@ -25,6 +25,7 @@ def get_active_window_title():
     title = None
 
     if sys.platform == "win32":
+        hdesk = None
         try:
             import ctypes
             user32 = ctypes.windll.user32
@@ -57,12 +58,18 @@ def get_active_window_title():
                             if t and t not in ("Program Manager", "Windows Input Experience", "Settings"):
                                 visible_windows.append(t)
                     return True
-                WND = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+                WND = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
                 user32.EnumWindows(WND(enum_proc), 0)
                 if visible_windows:
                     title = visible_windows[0]
         except Exception:
             pass
+        finally:
+            if hdesk:
+                try:
+                    user32.CloseDesktop(hdesk)
+                except Exception:
+                    pass
 
     if not title:
         try:
@@ -140,7 +147,16 @@ Window: "{window_title}"
 Respond strictly with only ONE word: either "EDUCATIONAL" or "DISTRACTION". Do not include any other words or punctuation."""
 
 
+_MAX_WINDOW_CACHE = 500
 _window_cache = {}
+
+
+def _cache_put(key: str, val: str):
+    global _window_cache
+    if len(_window_cache) >= _MAX_WINDOW_CACHE:
+        for k in list(_window_cache.keys())[:100]:
+            _window_cache.pop(k, None)
+    _window_cache[key] = val
 
 
 def clear_semantic_cache():
@@ -170,7 +186,7 @@ def classify_window_title(window_title, model=None, ollama_url=DEFAULT_OLLAMA_UR
         "dankmemes", "r/funny", "instagram", "twitter / x", "hulu", "disney+",
         "prime video", "roblox", "minecraft", "league of legends"
     ]):
-        _window_cache[clean_key] = "DISTRACTION"
+        _cache_put(clean_key, "DISTRACTION")
         return "DISTRACTION"
 
     # Fast-path 2 (Study, Research, Development, Navigation & Workspace):
@@ -184,7 +200,7 @@ def classify_window_title(window_title, model=None, ollama_url=DEFAULT_OLLAMA_UR
         "study", "lecture", "learning", "classroom", "canvas", "blackboard", "moodle",
         "research", "paper", "reader", "pdf", "acrobat", "notion", "obsidian", "anki", "github"
     ]):
-        _window_cache[clean_key] = "EDUCATIONAL"
+        _cache_put(clean_key, "EDUCATIONAL")
         return "EDUCATIONAL"
 
     target_model = resolve_model_name(model, ollama_url)
@@ -209,10 +225,10 @@ def classify_window_title(window_title, model=None, ollama_url=DEFAULT_OLLAMA_UR
         # Fallback keyword heuristic if Ollama service is unreachable
         clean = window_title.lower()
         if any(term in clean for term in ["calculus", "tutorial", "lecture", "coursera", "code", "learn", "study"]):
-            _window_cache[clean_key] = "EDUCATIONAL"
+            _cache_put(clean_key, "EDUCATIONAL")
             return "EDUCATIONAL"
         if any(term in clean for term in ["meme", "compilation", "funny", "game", "tiktok", "reel"]):
-            _window_cache[clean_key] = "DISTRACTION"
+            _cache_put(clean_key, "DISTRACTION")
             return "DISTRACTION"
         raise ConnectionError(f"Failed to communicate with Ollama at {endpoint}: {e}")
 
@@ -228,7 +244,7 @@ def classify_window_title(window_title, model=None, ollama_url=DEFAULT_OLLAMA_UR
         else:
             result = "DISTRACTION" if "MEME" in raw_text or "ENTERTAINMENT" in raw_text else "EDUCATIONAL"
 
-    _window_cache[clean_key] = result
+    _cache_put(clean_key, result)
     return result
 
 
