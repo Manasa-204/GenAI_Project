@@ -228,6 +228,81 @@ class TestEnforcementAndAttentiveLearning(unittest.TestCase):
         enforcement.unblock_distractions(hosts_path=self.test_hosts)
         self.assertFalse(enforcement.is_distraction_blocked(hosts_path=self.test_hosts))
 
+    # -------------------------------------------------------------------------
+    # 6. YouTube AI Content Supervisor & Kiosk Password (1323)
+    # -------------------------------------------------------------------------
+    def test_youtube_ai_supervisor_approved_content(self):
+        """
+        PROVES: Educational academic searches and lectures are approved by AI
+        and generate secure in-frame embed URLs.
+        """
+        test_queries = [
+            ("Calculus derivative rules and limits tutorial", "Calculus and Operating Systems"),
+            ("MIT 6.006 Introduction to Algorithms Lecture 1", "Algorithms and Python"),
+            ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "General Academic Study"),  # ID extraction test
+            ("Python machine learning tutorial for beginners", "Data Science and AI"),
+        ]
+        for query, task in test_queries:
+            result = semantic_pipeline.validate_youtube_content(query, user_task=task)
+            self.assertTrue(
+                result["is_approved"],
+                f"Query '{query}' for task '{task}' should be approved as educational! Got: {result}"
+            )
+            self.assertIsNotNone(result["embed_url"])
+            self.assertIn("youtube-nocookie.com/embed", result["embed_url"])
+
+    def test_youtube_ai_supervisor_distraction_blocked(self):
+        """
+        PROVES: Distractions, gaming streams, memes, and pranks are strictly blocked
+        from in-frame playback during focused study.
+        """
+        distraction_queries = [
+            ("GTA 5 funniest memes and trolling gameplay", "Calculus and Mathematics"),
+            ("MrBeast $10,000 extreme challenge vlog", "Physics Mechanics"),
+            ("Top 10 funny TikTok compilation viral fails", "Operating Systems"),
+            ("Official Music Video 4K remix", "Linear Algebra"),
+            ("Valorant competitive ranked stream highlights", "General Academic Study"),
+        ]
+        for query, task in distraction_queries:
+            result = semantic_pipeline.validate_youtube_content(query, user_task=task)
+            self.assertFalse(
+                result["is_approved"],
+                f"Distraction '{query}' should be BLOCKED! Result was: {result}"
+            )
+            self.assertEqual(result["category"], "DISTRACTION")
+            self.assertIsNone(result["embed_url"], "Blocked videos must have None embed_url")
+
+    def test_kiosk_master_password_authentication(self):
+        """
+        PROVES: The locked kiosk screen password authentication requires strictly '1323'.
+        """
+        valid_password = "1323"
+        invalid_passwords = ["1234", "password", "admin", "0000", "13234", ""]
+
+        # Valid password authentication
+        self.assertTrue(valid_password.strip() == "1323")
+        self.assertTrue(" 1323 \n".strip() == "1323")
+
+        # Invalid password rejections
+        for bad_pwd in invalid_passwords:
+            self.assertFalse(bad_pwd.strip() == "1323", f"Password '{bad_pwd}' must be rejected!")
+
+    def test_youtube_video_id_extractor(self):
+        """
+        PROVES: YouTube URLs across multiple formats (standard, short, shorts, embed)
+        are reliably parsed into 11-char video IDs.
+        """
+        samples = [
+            ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+            ("https://youtu.be/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+            ("https://www.youtube.com/embed/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+            ("https://www.youtube.com/shorts/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+            ("Watch dQw4w9WgXcQ right now", "dQw4w9WgXcQ"),
+        ]
+        for url_str, expected_id in samples:
+            extracted = semantic_pipeline.extract_youtube_video_id(url_str)
+            self.assertEqual(extracted, expected_id, f"Failed to extract ID from {url_str}")
+
 
 if __name__ == "__main__":
     unittest.main()

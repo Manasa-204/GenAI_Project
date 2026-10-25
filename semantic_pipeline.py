@@ -259,6 +259,160 @@ def set_mock_semantic_state(state):
     _mock_semantic_state = state
 
 
+from urllib.parse import quote_plus
+from typing import Optional, Dict, Any
+import json
+
+
+def extract_youtube_video_id(url_or_str: str) -> Optional[str]:
+    """Extracts 11-char YouTube video ID if present in string or URL."""
+    if not url_or_str:
+        return None
+    clean = url_or_str.strip()
+    if re.match(r"^[0-9A-Za-z_-]{11}$", clean):
+        return clean
+    patterns = [
+        r"(?:v=)([0-9A-Za-z_-]{11})(?:[&?]|$)",
+        r"youtu\.be\/([0-9A-Za-z_-]{11})(?:[&?]|$)",
+        r"embed\/([0-9A-Za-z_-]{11})(?:[&?]|$)",
+        r"shorts\/([0-9A-Za-z_-]{11})(?:[&?]|$)",
+        r"(?:watch\?v=|\/v\/|\/u\/\w\/)([0-9A-Za-z_-]{11})",
+        r"(?:\b)([0-9A-Za-z_-]{11})(?:\b)"
+    ]
+    for p in patterns:
+        m = re.search(p, clean)
+        if m:
+            cand = m.group(1)
+            # Ensure it is a valid 11-char token with numbers/mixed case
+            if len(cand) == 11 and (any(c.isdigit() for c in cand) or any(c.isupper() for c in cand)):
+                return cand
+    return None
+
+
+def validate_youtube_content(
+    query_or_url: str,
+    user_task: str = "General Academic Study",
+    ollama_url: str = DEFAULT_OLLAMA_URL
+) -> Dict[str, Any]:
+    """
+    Evaluates whether a YouTube search query or video URL is EDUCATIONAL and relevant
+    to the user's active study task. If not, playback is strictly blocked.
+    """
+    clean_query = (query_or_url or "").strip()
+    clean_task = (user_task or "General Academic Study").strip()
+
+    if not clean_query:
+        return {
+            "is_approved": False,
+            "category": "INVALID",
+            "reason": "Please enter a search query or YouTube video link.",
+            "video_id": None,
+            "embed_url": None
+        }
+
+    vid_id = extract_youtube_video_id(clean_query)
+    q_lower = clean_query.lower()
+    task_lower = clean_task.lower()
+
+    # 1. Distraction keywords check
+    distraction_keywords = [
+        "meme", "memes", "funny", "tiktok", "reels", "shorts", "prank", "pranks",
+        "gaming", "gameplay", "gta", "minecraft", "fortnite", "valorant", "roblox",
+        "stream", "twitch", "comedy", "music video", "official music video", "trailer",
+        "movie clip", "vlog", "mrbeast", "dank", "compilation", "react", "reaction",
+        "entertainment", "gossip", "unboxing", "challenge", "asmr", "horrific", "scary",
+        "fails", "fail", "dance", "trolling"
+    ]
+
+    matched_distraction = next((kw for kw in distraction_keywords if re.search(rf"\b{re.escape(kw)}\b", q_lower)), None)
+    if matched_distraction and matched_distraction not in task_lower:
+        return {
+            "is_approved": False,
+            "category": "DISTRACTION",
+            "reason": f"Content contains entertainment keyword '{matched_distraction}' which is blocked during focus sessions.",
+            "video_id": vid_id,
+            "embed_url": None
+        }
+
+    # 2. Try querying Ollama for deep semantic relevance if available
+    try:
+        model = resolve_model_name(None, ollama_url)
+        prompt = (
+            f"You are an AI Academic Content Classifier for a focused student workstation.\n"
+            f"Active Student Task: \"{clean_task}\"\n"
+            f"Requested YouTube Query or Title: \"{clean_query}\"\n\n"
+            f"Evaluate if this YouTube content is EDUCATIONAL and relevant to the student's task.\n"
+            f"Respond strictly with a JSON object in this exact format:\n"
+            f'{{"approved": true, "category": "EDUCATIONAL", "reason": "concise explanation"}}'
+        )
+        endpoint = f"{ollama_url.rstrip('/')}/api/generate"
+        resp = requests.post(
+            endpoint,
+            json={
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": 0.0, "num_predict": 50}
+            },
+            timeout=3.0
+        )
+        if resp.status_code == 200:
+            raw = resp.json().get("response", "").strip()
+            m = re.search(r"\{.*\}", raw, re.DOTALL)
+            if m:
+                parsed = json.loads(m.group(0))
+                approved = bool(parsed.get("approved", False))
+                cat = parsed.get("category", "EDUCATIONAL" if approved else "DISTRACTION")
+                reason = parsed.get("reason", "Evaluated by AI.")
+                embed = f"https://www.youtube-nocookie.com/embed/{vid_id}?autoplay=1" if (approved and vid_id) else (
+                    f"https://www.youtube-nocookie.com/embed?listType=search&list={quote_plus(clean_query)}" if approved else None
+                )
+                return {
+                    "is_approved": approved,
+                    "category": cat,
+                    "reason": reason,
+                    "video_id": vid_id,
+                    "embed_url": embed
+                }
+    except Exception:
+        pass
+
+    # 3. Local Academic Semantic Heuristic
+    academic_keywords = [
+        "calculus", "math", "mathematics", "physics", "chemistry", "biology",
+        "computer science", "programming", "python", "java", "c++", "data structures",
+        "algorithms", "tutorial", "lecture", "course", "class", "edx", "coursera",
+        "khan academy", "mit", "harvard", "stanford", "professor", "explanation",
+        "how to", "history", "economics", "psychology", "literature", "engineering",
+        "research", "paper", "architecture", "design patterns", "devops", "database",
+        "sql", "machine learning", "ai", "neural network", "linear algebra", "statistics",
+        "derivatives", "integration", "geometry", "algebra", "operating systems",
+        "compiler", "frontend", "backend", "react", "fastapi", "docker", "kubernetes"
+    ]
+
+    is_academic = any(kw in q_lower for kw in academic_keywords)
+    task_words = [w for w in re.findall(r"[a-zA-Z]{3,}", task_lower) if w not in ("and", "the", "for", "with", "study", "learning")]
+    task_overlap = any(w in q_lower for w in task_words) if task_words else False
+
+    if is_academic or task_overlap or clean_task == "General Academic Study":
+        embed = f"https://www.youtube-nocookie.com/embed/{vid_id}?autoplay=1" if vid_id else f"https://www.youtube-nocookie.com/embed?listType=search&list={quote_plus(clean_query)}"
+        return {
+            "is_approved": True,
+            "category": "EDUCATIONAL",
+            "reason": f"Content matches academic keywords or active study task ('{clean_task}').",
+            "video_id": vid_id,
+            "embed_url": embed
+        }
+    else:
+        return {
+            "is_approved": False,
+            "category": "UNRELATED",
+            "reason": f"Content does not appear educational or relevant to your active task: '{clean_task}'.",
+            "video_id": vid_id,
+            "embed_url": None
+        }
+
+
 def get_semantic_state(window_title=None, model=None, ollama_url=DEFAULT_OLLAMA_URL):
     """
     Primary interface for Engineer 3 (NLP & App Integration).

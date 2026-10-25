@@ -747,9 +747,136 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         .fa-xmark { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3C/svg%3E"); }
         .fa-triangle-exclamation { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z'/%3E%3Cline x1='12' y1='9' x2='12' y2='13'/%3E%3Cline x1='12' y1='17' x2='12.01' y2='17'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z'/%3E%3Cline x1='12' y1='9' x2='12' y2='13'/%3E%3Cline x1='12' y1='17' x2='12.01' y2='17'/%3E%3C/svg%3E"); }
         .fa-spinner { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-6.219-8.56'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-6.219-8.56'/%3E%3C/svg%3E"); }
+        .fa-lock { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='11' x='3' y='11' rx='2' ry='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='11' x='3' y='11' rx='2' ry='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E"); }
+        .fa-expand { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21 21-6-6m6 6v-4.8m0 4.8h-4.8M3 16.2V21m0 0h4.8M3 21l6-6M21 7.8V3m0 0h-4.8M21 3l-6 6M3 7.8V3m0 0h4.8M3 3l6 6'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21 21-6-6m6 6v-4.8m0 4.8h-4.8M3 16.2V21m0 0h4.8M3 21l6-6M21 7.8V3m0 0h-4.8M21 3l-6 6M3 7.8V3m0 0h4.8M3 3l6 6'/%3E%3C/svg%3E"); }
+        .fa-magnifying-glass, .fa-search { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E"); }
+        .fa-youtube { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17'/%3E%3Cpolygon points='10 15 15 12 10 9 10 15'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17'/%3E%3Cpolygon points='10 15 15 12 10 9 10 15'/%3E%3C/svg%3E"); }
+        .fa-stopwatch { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='14' r='8'/%3E%3Cline x1='12' y1='2' x2='12' y2='6'/%3E%3Cline x1='12' y1='14' x2='15' y2='11'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='14' r='8'/%3E%3Cline x1='12' y1='2' x2='12' y2='6'/%3E%3Cline x1='12' y1='14' x2='15' y2='11'/%3E%3C/svg%3E"); }
+        .fa-shield { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3C/svg%3E"); }
     </style>
 </head>
 <body class="min-h-screen p-4 md:p-8">
+    <!-- Floating Kiosk Active HUD (visible when locked focus kiosk is running) -->
+    <div id="kiosk-hud-bar" class="hidden fixed top-0 left-0 right-0 z-50 bg-slate-950/95 border-b border-indigo-500/40 backdrop-blur-xl px-4 py-2.5 shadow-2xl flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-black bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                <span class="w-2 h-2 rounded-full bg-rose-400 animate-ping"></span>
+                🔒 LOCKED FOCUS SESSION ACTIVE
+            </span>
+            <div class="text-xs text-slate-300 hidden md:flex items-center gap-2">
+                <span class="text-slate-500">Goal:</span>
+                <span id="kiosk-hud-task" class="font-bold text-indigo-300">General Academic Study</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-stopwatch text-indigo-400 text-sm"></i>
+                <span class="text-xs text-slate-400">Time Left:</span>
+                <span id="kiosk-hud-timer" class="font-black mono text-lg text-emerald-400 tracking-wider">25:00</span>
+            </div>
+            <button onclick="requestEmergencyUnlock()" class="px-3 py-1 rounded-lg bg-slate-800/90 hover:bg-rose-900/40 text-slate-300 hover:text-rose-200 border border-slate-700 hover:border-rose-500/50 text-xs font-bold transition flex items-center gap-1.5">
+                <i class="fa-solid fa-key text-yellow-400"></i> Unlock (Pass: 1323)
+            </button>
+        </div>
+    </div>
+
+    <!-- Fullscreen Anti-Escape Lockdown Shield -->
+    <div id="lockdown-shield" class="hidden fixed inset-0 z-[999999] bg-slate-950/98 backdrop-blur-2xl flex flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-md w-full glass p-8 rounded-3xl border border-rose-500/50 shadow-2xl shadow-rose-950/50 space-y-6">
+            <div class="w-16 h-16 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center mx-auto text-rose-400 text-2xl">
+                <i class="fa-solid fa-lock animate-bounce"></i>
+            </div>
+            <div>
+                <h2 class="text-2xl font-black text-white tracking-tight">Focus Lockdown Active</h2>
+                <p class="text-xs text-rose-300/90 mt-1">Fullscreen exit is blocked until your study session finishes or master password is authenticated.</p>
+            </div>
+            <div class="p-3 bg-slate-900/90 rounded-xl border border-slate-800 text-xs text-slate-300 mono flex items-center justify-between">
+                <span>Session Time Remaining:</span>
+                <span id="shield-timer-display" class="font-black text-emerald-400 text-sm">--:--</span>
+            </div>
+            <div class="space-y-3">
+                <button onclick="resumeFullscreenKiosk()" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:opacity-95 text-white font-bold text-xs tracking-wide transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30">
+                    <i class="fa-solid fa-expand"></i> Resume Fullscreen Focus
+                </button>
+                <div class="relative flex py-1 items-center">
+                    <div class="flex-grow border-t border-slate-800"></div>
+                    <span class="flex-shrink mx-3 text-[10px] text-slate-500 uppercase tracking-widest">Or Unlock Early</span>
+                    <div class="flex-grow border-t border-slate-800"></div>
+                </div>
+                <div class="flex gap-2">
+                    <input id="shield-password-input" type="password" placeholder="Enter Password (1323)" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 text-center mono tracking-widest" onkeydown="if(event.key==='Enter') verifyShieldPassword()">
+                    <button onclick="verifyShieldPassword()" class="px-4 py-2.5 rounded-xl bg-rose-600/80 hover:bg-rose-500 text-white font-bold text-xs transition flex items-center gap-1.5 shadow">
+                        <i class="fa-solid fa-key"></i> Unlock
+                    </button>
+                </div>
+                <p id="shield-error-msg" class="hidden text-xs text-rose-400 font-semibold"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Kiosk Setup Modal -->
+    <div id="kiosk-setup-modal" class="hidden fixed inset-0 z-[99999] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="max-w-lg w-full glass p-6 md:p-8 rounded-3xl border border-indigo-500/40 shadow-2xl space-y-6">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
+                        <i class="fa-solid fa-lock text-lg"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-black text-white">Start Locked Focus Kiosk</h2>
+                        <p class="text-xs text-slate-400">Master Password: <span class="mono font-bold text-yellow-400">1323</span></p>
+                    </div>
+                </div>
+                <button onclick="closeKioskConfigModal()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+
+            <div class="space-y-4 text-xs">
+                <div>
+                    <label class="block text-slate-300 font-bold mb-1.5">1. Define Your Academic Task / Focus Goal:</label>
+                    <input id="kiosk-task-input" type="text" value="Calculus and Operating Systems" placeholder="e.g., Linear Algebra, Python Data Structures, Physics Mechanics" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-slate-100 focus:outline-none focus:border-indigo-500 text-xs">
+                    <p class="text-[10px] text-slate-500 mt-1">Our in-frame YouTube AI search bar will strictly verify video topics against this goal.</p>
+                </div>
+
+                <div>
+                    <label class="block text-slate-300 font-bold mb-1.5">2. Select Lock Duration:</label>
+                    <div class="grid grid-cols-4 gap-2">
+                        <button type="button" onclick="selectDuration(10)" class="duration-btn py-2.5 rounded-xl border border-slate-700 hover:border-indigo-500 font-bold text-center transition bg-slate-900/60 text-slate-300" data-mins="10">10 Min</button>
+                        <button type="button" onclick="selectDuration(15)" class="duration-btn py-2.5 rounded-xl border border-slate-700 hover:border-indigo-500 font-bold text-center transition bg-slate-900/60 text-slate-300" data-mins="15">15 Min</button>
+                        <button type="button" onclick="selectDuration(25)" class="duration-btn py-2.5 rounded-xl border border-indigo-500 font-bold text-center transition bg-indigo-600/30 text-white" data-mins="25">25 Min</button>
+                        <button type="button" onclick="selectDuration(45)" class="duration-btn py-2.5 rounded-xl border border-slate-700 hover:border-indigo-500 font-bold text-center transition bg-slate-900/60 text-slate-300" data-mins="45">45 Min</button>
+                    </div>
+                    <div class="flex items-center gap-2 mt-2">
+                        <span class="text-slate-400 text-[11px]">Or custom minutes:</span>
+                        <input id="kiosk-custom-mins" type="number" min="1" max="180" placeholder="Custom" class="w-20 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-center text-xs text-white focus:outline-none focus:border-indigo-500" oninput="customDurationChanged(this.value)">
+                    </div>
+                </div>
+
+                <div class="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 space-y-1.5 text-[11px] text-slate-300">
+                    <div class="flex items-center gap-2 font-bold text-indigo-400">
+                        <i class="fa-solid fa-shield-halved"></i> Kiosk Enforcement Safeguards:
+                    </div>
+                    <ul class="list-disc pl-4 space-y-0.5 text-slate-400">
+                        <li>The screen locks into fullscreen until the timer counts down to 00:00.</li>
+                        <li>Escaping fullscreen is blocked by an anti-escape security shield.</li>
+                        <li>Can be unlocked early at any time by entering master password <span class="mono font-bold text-yellow-300">1323</span>.</li>
+                        <li>When time is up, fullscreen mode automatically exits with an audio completion chime.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3 pt-2 border-t border-slate-800">
+                <button onclick="closeKioskConfigModal()" class="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition">
+                    Cancel
+                </button>
+                <button onclick="startLockedKioskSession()" class="flex-[2] py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-95 text-white font-black text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30">
+                    <i class="fa-solid fa-lock"></i> Start Fullscreen Kiosk
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div class="max-w-7xl mx-auto space-y-6">
 
         <!-- Top Header Navigation -->
@@ -767,6 +894,9 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
             </div>
 
             <div class="flex items-center gap-3">
+                <button onclick="openKioskConfigModal()" class="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-90 text-white text-xs font-black transition flex items-center gap-1.5 shadow-lg shadow-indigo-500/25 border border-indigo-400/30">
+                    <i class="fa-solid fa-lock text-yellow-300"></i> Locked Focus Kiosk (Pass: 1323)
+                </button>
                 <span id="live-mode-badge" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                     <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> 🟢 LIVE SENSOR MODE (Camera & Window)
                 </span>
@@ -1056,6 +1186,95 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                     </div>
                     <i class="fa-solid fa-fire text-indigo-400"></i>
                 </button>
+            </div>
+        </div>
+
+        <!-- In-Frame AI-Supervised YouTube Learning Center -->
+        <div id="youtube-learning-section" class="glass p-6 rounded-2xl border border-indigo-500/30 shadow-xl space-y-4">
+            <div class="flex flex-col md:flex-row md:items-center justify-between pb-3 border-b border-slate-800 gap-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-400 text-lg">
+                        <i class="fa-solid fa-youtube"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-black text-white flex items-center gap-2">
+                            In-Frame YouTube Learning Viewport
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">AI Supervised</span>
+                        </h2>
+                        <p class="text-xs text-slate-400">Searches and video links are verified by AI against your active study goal before allowing playback.</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-slate-400">Active Task:</span>
+                    <span id="current-task-pill" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-950/60 text-indigo-300 border border-indigo-500/40 mono">General Academic Study</span>
+                    <button onclick="promptChangeTask()" class="px-2 py-1 rounded text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+                        Change Goal
+                    </button>
+                </div>
+            </div>
+
+            <!-- YouTube Search Bar -->
+            <div class="flex flex-col sm:flex-row items-stretch gap-2">
+                <div class="relative flex-1">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3.5 text-slate-500 text-xs"></i>
+                    <input id="youtube-search-input" type="text" placeholder="Search academic video or paste YouTube URL (e.g. 'Calculus 1 full course', 'MIT 6.006 Lecture 1')" class="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500" onkeydown="if(event.key==='Enter') searchYouTubeWithAI()">
+                </div>
+                <button id="yt-search-btn" onclick="searchYouTubeWithAI()" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25">
+                    <i class="fa-solid fa-brain"></i> Verify & Play
+                </button>
+                <button onclick="resetYouTubePlayer()" class="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition">
+                    Clear
+                </button>
+            </div>
+
+            <!-- Quick Academic Suggestion Chips -->
+            <div class="flex flex-wrap items-center gap-1.5 text-[11px]">
+                <span class="text-slate-500 font-semibold mr-1">Quick Academic Topics:</span>
+                <button onclick="quickSearch('Calculus derivative rules and limits tutorial')" class="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition">Calculus Tutorial</button>
+                <button onclick="quickSearch('MIT Operating Systems and Concurrency Lecture')" class="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition">MIT Operating Systems</button>
+                <button onclick="quickSearch('Data Structures and Algorithms in Python full course')" class="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition">Python Algorithms</button>
+                <button onclick="quickSearch('GTA 5 funny gameplay meme compilation')" class="px-2.5 py-1 rounded-lg bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-500/30 transition">Test Distraction (Meme)</button>
+            </div>
+
+            <!-- AI Verdict Banner -->
+            <div id="yt-verdict-banner" class="hidden p-3.5 rounded-xl border flex items-start gap-3 transition-all text-xs">
+                <div id="yt-verdict-icon" class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-sm"></div>
+                <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                        <span id="yt-verdict-title" class="font-bold uppercase tracking-wider text-[11px]"></span>
+                        <span id="yt-verdict-category" class="px-2 py-0.5 rounded text-[10px] font-bold mono"></span>
+                    </div>
+                    <p id="yt-verdict-reason" class="text-slate-300 mt-1"></p>
+                </div>
+            </div>
+
+            <!-- In-Frame Video Player Viewport -->
+            <div id="yt-player-container" class="relative rounded-2xl overflow-hidden bg-black border border-slate-800 aspect-video flex items-center justify-center shadow-2xl">
+                <!-- Fallback / Empty Placeholder -->
+                <div id="yt-placeholder" class="text-center p-8 space-y-3">
+                    <div class="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto text-slate-600 text-2xl">
+                        <i class="fa-solid fa-youtube"></i>
+                    </div>
+                    <div class="text-sm font-bold text-slate-300">No Video Active</div>
+                    <p class="text-xs text-slate-500 max-w-sm mx-auto">Search for an educational topic or paste a YouTube URL above. The AI filter will inspect the content before playing.</p>
+                </div>
+
+                <!-- Video Iframe -->
+                <iframe id="yt-iframe" class="hidden w-full h-full border-0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+
+                <!-- Denied Distraction Shield inside Player -->
+                <div id="yt-denied-card" class="hidden absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center space-y-4">
+                    <div class="w-16 h-16 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 text-2xl">
+                        <i class="fa-solid fa-ban animate-pulse"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-black text-white">Video Playback Denied</h3>
+                        <p id="yt-denied-reason" class="text-xs text-rose-300 mt-1 max-w-md"></p>
+                    </div>
+                    <div class="p-3 bg-slate-900 rounded-xl border border-slate-800 text-[11px] text-slate-400 max-w-md">
+                        The AI classifier flagged this video as entertainment / unrelated to your active study goal: <span id="yt-denied-task" class="font-bold text-indigo-300"></span>.
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1520,6 +1739,359 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
             }
         }
 
+        // ==========================================
+        // LOCKED FOCUS KIOSK & ANTI-ESCAPE CONTROLLER
+        // Master Password: 1323
+        // ==========================================
+        let kioskActive = false;
+        let kioskEndTime = 0;
+        let kioskDurationMinutes = 25;
+        let kioskTimerInterval = null;
+        let currentStudyTask = "General Academic Study";
+
+        function openKioskConfigModal() {
+            document.getElementById('kiosk-setup-modal').classList.remove('hidden');
+        }
+
+        function closeKioskConfigModal() {
+            document.getElementById('kiosk-setup-modal').classList.add('hidden');
+        }
+
+        function selectDuration(mins) {
+            kioskDurationMinutes = mins;
+            document.querySelectorAll('.duration-btn').forEach(b => {
+                if (parseInt(b.getAttribute('data-mins')) === mins) {
+                    b.classList.remove('border-slate-700', 'bg-slate-900/60', 'text-slate-300');
+                    b.classList.add('border-indigo-500', 'bg-indigo-600/30', 'text-white');
+                } else {
+                    b.classList.remove('border-indigo-500', 'bg-indigo-600/30', 'text-white');
+                    b.classList.add('border-slate-700', 'bg-slate-900/60', 'text-slate-300');
+                }
+            });
+            document.getElementById('kiosk-custom-mins').value = '';
+        }
+
+        function customDurationChanged(val) {
+            const num = parseInt(val);
+            if (num && num > 0) {
+                kioskDurationMinutes = num;
+                document.querySelectorAll('.duration-btn').forEach(b => {
+                    b.classList.remove('border-indigo-500', 'bg-indigo-600/30', 'text-white');
+                    b.classList.add('border-slate-700', 'bg-slate-900/60', 'text-slate-300');
+                });
+            }
+        }
+
+        async function startLockedKioskSession() {
+            const taskInput = document.getElementById('kiosk-task-input').value.trim();
+            if (taskInput) {
+                currentStudyTask = taskInput;
+                updateTaskPills();
+            }
+
+            // 1. Enter Fullscreen Mode
+            try {
+                const docEl = document.documentElement;
+                if (docEl.requestFullscreen) {
+                    await docEl.requestFullscreen();
+                } else if (docEl.webkitRequestFullscreen) {
+                    await docEl.webkitRequestFullscreen();
+                } else if (docEl.msRequestFullscreen) {
+                    await docEl.msRequestFullscreen();
+                }
+            } catch (err) {
+                console.warn("Fullscreen request error:", err);
+            }
+
+            // 2. Set Kiosk State & Timers
+            kioskActive = true;
+            kioskEndTime = Date.now() + (kioskDurationMinutes * 60 * 1000);
+
+            // 3. Update HUD
+            document.getElementById('kiosk-hud-task').textContent = currentStudyTask;
+            document.getElementById('kiosk-hud-bar').classList.remove('hidden');
+            document.getElementById('lockdown-shield').classList.add('hidden');
+            closeKioskConfigModal();
+
+            if (kioskTimerInterval) clearInterval(kioskTimerInterval);
+            kioskTimerInterval = setInterval(updateKioskTimer, 500);
+            updateKioskTimer();
+
+            // Log event to server
+            fetch('/api/log-kiosk-event', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ event: 'KIOSK_START', task: currentStudyTask, duration: kioskDurationMinutes * 60 })
+            }).catch(() => {});
+        }
+
+        function updateKioskTimer() {
+            if (!kioskActive) return;
+
+            const msLeft = kioskEndTime - Date.now();
+            if (msLeft <= 0) {
+                completeKioskSession();
+                return;
+            }
+
+            const totalSec = Math.max(0, Math.floor(msLeft / 1000));
+            const m = Math.floor(totalSec / 60);
+            const s = totalSec % 60;
+            const timeStr = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+
+            const hudTimer = document.getElementById('kiosk-hud-timer');
+            if (hudTimer) hudTimer.textContent = timeStr;
+
+            const shieldTimer = document.getElementById('shield-timer-display');
+            if (shieldTimer) shieldTimer.textContent = timeStr;
+        }
+
+        function completeKioskSession() {
+            kioskActive = false;
+            if (kioskTimerInterval) {
+                clearInterval(kioskTimerInterval);
+                kioskTimerInterval = null;
+            }
+
+            document.getElementById('kiosk-hud-bar').classList.add('hidden');
+            document.getElementById('lockdown-shield').classList.add('hidden');
+
+            // Exit Fullscreen
+            if (document.fullscreenElement) {
+                try {
+                    document.exitFullscreen().catch(() => {});
+                } catch(e) {}
+            }
+
+            // Play celebratory audio chime via Web Audio API
+            playCompletionChime();
+
+            fetch('/api/log-kiosk-event', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ event: 'KIOSK_TIMER_COMPLETE', task: currentStudyTask })
+            }).catch(() => {});
+
+            alert("🎉 FOCUS SESSION COMPLETE!\n\nYour scheduled study timer has concluded. Fullscreen lock is now deactivated. Excellent job staying focused!");
+        }
+
+        function playCompletionChime() {
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtx) return;
+                const ctx = new AudioCtx();
+                const now = ctx.currentTime;
+                // Pleasant major chord chime (C5, E5, G5, C6)
+                const notes = [523.25, 659.25, 783.99, 1046.50];
+                notes.forEach((freq, idx) => {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(freq, now + idx * 0.14);
+                    gain.gain.setValueAtTime(0.25, now + idx * 0.14);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.14 + 0.45);
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start(now + idx * 0.14);
+                    osc.stop(now + idx * 0.14 + 0.45);
+                });
+            } catch (err) {
+                console.warn("Chime error:", err);
+            }
+        }
+
+        // Anti-Escape Listeners
+        document.addEventListener('fullscreenchange', () => {
+            if (kioskActive && !document.fullscreenElement) {
+                showLockdownShield();
+            }
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (kioskActive) {
+                if (e.key === 'Escape' || e.key === 'F11') {
+                    e.preventDefault();
+                    showLockdownShield();
+                }
+            }
+        }, true);
+
+        window.addEventListener('beforeunload', (e) => {
+            if (kioskActive) {
+                e.preventDefault();
+                e.returnValue = 'Locked Focus Session Active! Are you sure you want to exit?';
+                return e.returnValue;
+            }
+        });
+
+        function showLockdownShield() {
+            const shield = document.getElementById('lockdown-shield');
+            shield.classList.remove('hidden');
+            const errP = document.getElementById('shield-error-msg');
+            if (errP) errP.classList.add('hidden');
+            const pwdInput = document.getElementById('shield-password-input');
+            if (pwdInput) {
+                pwdInput.value = '';
+                pwdInput.focus();
+            }
+        }
+
+        async function resumeFullscreenKiosk() {
+            try {
+                const docEl = document.documentElement;
+                if (docEl.requestFullscreen) {
+                    await docEl.requestFullscreen();
+                }
+            } catch(e) {}
+            document.getElementById('lockdown-shield').classList.add('hidden');
+        }
+
+        function requestEmergencyUnlock() {
+            showLockdownShield();
+        }
+
+        async function verifyShieldPassword() {
+            const input = document.getElementById('shield-password-input');
+            const errP = document.getElementById('shield-error-msg');
+            const pwd = (input.value || "").trim();
+
+            if (pwd === "1323") {
+                kioskActive = false;
+                if (kioskTimerInterval) {
+                    clearInterval(kioskTimerInterval);
+                    kioskTimerInterval = null;
+                }
+                document.getElementById('lockdown-shield').classList.add('hidden');
+                document.getElementById('kiosk-hud-bar').classList.add('hidden');
+                if (document.fullscreenElement) {
+                    try { document.exitFullscreen().catch(() => {}); } catch(e) {}
+                }
+                input.value = '';
+                fetch('/api/log-kiosk-event', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ event: 'KIOSK_UNLOCKED_PASSWORD', task: currentStudyTask })
+                }).catch(() => {});
+                alert("🔓 Focus Kiosk Unlocked successfully with master password.");
+            } else {
+                errP.textContent = "Incorrect password! Enter master password 1323 to unlock.";
+                errP.classList.remove('hidden');
+                input.value = '';
+                input.focus();
+            }
+        }
+
+        function updateTaskPills() {
+            const hudTask = document.getElementById('kiosk-hud-task');
+            if (hudTask) hudTask.textContent = currentStudyTask;
+            const taskPill = document.getElementById('current-task-pill');
+            if (taskPill) taskPill.textContent = currentStudyTask;
+        }
+
+        function promptChangeTask() {
+            const entered = prompt("Enter your new academic focus task / study goal:", currentStudyTask);
+            if (entered && entered.trim()) {
+                currentStudyTask = entered.trim();
+                updateTaskPills();
+            }
+        }
+
+        // ==========================================
+        // IN-FRAME AI-SUPERVISED YOUTUBE CONTROLLER
+        // ==========================================
+        async function searchYouTubeWithAI() {
+            const input = document.getElementById('youtube-search-input');
+            const query = (input.value || "").trim();
+            if (!query) {
+                alert("Please enter a YouTube topic, search query, or video link.");
+                return;
+            }
+
+            const btn = document.getElementById('yt-search-btn');
+            btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> AI Evaluating...`;
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/check-youtube-query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query, task: currentStudyTask })
+                });
+                const data = await res.json();
+                renderYouTubeVerdict(data);
+            } catch (err) {
+                console.error("YouTube query validation error:", err);
+                alert("Error validating YouTube query with AI: " + err);
+            } finally {
+                btn.innerHTML = `<i class="fa-solid fa-brain"></i> Verify & Play`;
+                btn.disabled = false;
+            }
+        }
+
+        function renderYouTubeVerdict(data) {
+            const banner = document.getElementById('yt-verdict-banner');
+            const icon = document.getElementById('yt-verdict-icon');
+            const title = document.getElementById('yt-verdict-title');
+            const cat = document.getElementById('yt-verdict-category');
+            const reason = document.getElementById('yt-verdict-reason');
+            const iframe = document.getElementById('yt-iframe');
+            const placeholder = document.getElementById('yt-placeholder');
+            const deniedCard = document.getElementById('yt-denied-card');
+            const deniedReason = document.getElementById('yt-denied-reason');
+            const deniedTask = document.getElementById('yt-denied-task');
+
+            banner.classList.remove('hidden');
+
+            if (data.is_approved) {
+                banner.className = "p-3.5 rounded-xl border bg-emerald-950/20 border-emerald-500/40 flex items-start gap-3 transition-all text-xs";
+                icon.className = "w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0 text-sm";
+                icon.innerHTML = `<i class="fa-solid fa-check"></i>`;
+                title.textContent = "AI Verification Approved";
+                title.className = "font-bold uppercase tracking-wider text-[11px] text-emerald-400";
+                cat.textContent = data.category || "EDUCATIONAL";
+                cat.className = "px-2 py-0.5 rounded text-[10px] font-bold mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40";
+                reason.textContent = data.reason || "Content matches active study task.";
+
+                placeholder.classList.add('hidden');
+                deniedCard.classList.add('hidden');
+                iframe.classList.remove('hidden');
+                if (data.embed_url) {
+                    iframe.src = data.embed_url;
+                }
+            } else {
+                banner.className = "p-3.5 rounded-xl border bg-rose-950/30 border-rose-500/50 flex items-start gap-3 transition-all text-xs";
+                icon.className = "w-7 h-7 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center flex-shrink-0 text-sm";
+                icon.innerHTML = `<i class="fa-solid fa-ban"></i>`;
+                title.textContent = "AI Verification Blocked";
+                title.className = "font-bold uppercase tracking-wider text-[11px] text-rose-400";
+                cat.textContent = data.category || "DISTRACTION";
+                cat.className = "px-2 py-0.5 rounded text-[10px] font-bold mono bg-rose-500/20 text-rose-300 border border-rose-500/40";
+                reason.textContent = data.reason || "Content is not educational or does not match your active goal.";
+
+                iframe.src = "about:blank";
+                iframe.classList.add('hidden');
+                placeholder.classList.add('hidden');
+                deniedCard.classList.remove('hidden');
+                deniedReason.textContent = data.reason;
+                deniedTask.textContent = currentStudyTask;
+            }
+        }
+
+        function resetYouTubePlayer() {
+            document.getElementById('youtube-search-input').value = '';
+            const iframe = document.getElementById('yt-iframe');
+            iframe.src = 'about:blank';
+            iframe.classList.add('hidden');
+            document.getElementById('yt-denied-card').classList.add('hidden');
+            document.getElementById('yt-placeholder').classList.remove('hidden');
+            document.getElementById('yt-verdict-banner').classList.add('hidden');
+        }
+
+        function quickSearch(topic) {
+            document.getElementById('youtube-search-input').value = topic;
+            searchYouTubeWithAI();
+        }
+
         setInterval(fetchStatus, 1000);
         fetchStatus();
     </script>
@@ -1689,6 +2261,24 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 "window_interceptor_tested": True,
                 "simulated_minimize_triggered": minimized
             })
+
+        elif parsed.path == "/api/check-youtube-query":
+            query = payload.get("query", "")
+            task = payload.get("task", "General Academic Study")
+            result = semantic_pipeline.validate_youtube_content(query, user_task=task)
+            self._send_json({"status": "ok", **result})
+
+        elif parsed.path == "/api/verify-password":
+            pwd = str(payload.get("password", "")).strip()
+            valid = (pwd == "1323")
+            self._send_json({"status": "ok", "valid": valid})
+
+        elif parsed.path == "/api/log-kiosk-event":
+            event_type = payload.get("event", "UNKNOWN")
+            task = payload.get("task", "")
+            dur = payload.get("duration", 0)
+            print(f"[{datetime.now().isoformat()}] [KIOSK EVENT] {event_type} | Task: {task} | Duration: {dur}s")
+            self._send_json({"status": "ok", "logged": True})
 
         else:
             self.send_error(404, "Unknown POST endpoint")
