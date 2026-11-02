@@ -3,9 +3,13 @@ enforcement.py
 --------------
 Systems & OS Enforcement Engine for Parental Control.
 Handles:
-1. Domain-level website blocking via Windows hosts file and DNS resolver cache flushing.
-2. Direct Windows Process termination (taskkill / Win32 TerminateProcess) for blacklisted apps.
-3. Time limit enforcement and automated lockdown triggers.
+1. Domain-level website blocking via Windows hosts file (YouTube, TikTok, Gaming sites).
+2. Proactive Zero-Tolerance Distraction App Termination:
+   - When distraction blocking is active (balance <= 0 or lockdown enabled),
+     STRICTLY blocks and immediately terminates ALL distraction processes:
+     Roblox, Minecraft, Steam, Discord, Epic Games, Valorant, TikTok, Spotify, etc.
+3. Real-Time Distraction Window Interceptor:
+   - Minimizes / intercepts active browser windows or applications navigating to distraction content.
 """
 
 import os
@@ -13,7 +17,7 @@ import sys
 import ctypes
 import subprocess
 import socket
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Set
 
 import db_manager
 
@@ -22,6 +26,7 @@ BLOCK_FOOTER = "# === DEMON OS ENFORCEMENT BLOCK END ==="
 REDIRECT_IPV4 = "127.0.0.1"
 REDIRECT_IPV6 = "::1"
 
+# Comprehensive list of distraction domains redirected to localhost
 DEFAULT_DISTRACTION_DOMAINS = [
     "youtube.com",
     "www.youtube.com",
@@ -53,6 +58,49 @@ DEFAULT_DISTRACTION_DOMAINS = [
     "steamcommunity.com",
     "store.steampowered.com",
 ]
+
+# Comprehensive Blacklist of Distraction Executable Names (Case-insensitive)
+KNOWN_DISTRACTION_PROCESSES = {
+    # Games & Gaming Launchers
+    "robloxplayerbeta.exe",
+    "roblox.exe",
+    "minecraft.exe",
+    "javaw.exe",
+    "steam.exe",
+    "steamwebhelper.exe",
+    "epicgameslauncher.exe",
+    "epicwebhelper.exe",
+    "riotclientservices.exe",
+    "valorant.exe",
+    "valorant-win64-shipping.exe",
+    "fortniteclient-win64-shipping.exe",
+    "fortnite.exe",
+    "leagueclient.exe",
+    "leagueclientux.exe",
+    "genshinimpact.exe",
+    "gta5.exe",
+    "battle.net.exe",
+    "origin.exe",
+    "ea.exe",
+    "eadesktop.exe",
+    "ubisoftconnect.exe",
+    # Social & Chat
+    "discord.exe",
+    "tiktok.exe",
+    "whatsapp.exe",
+    "telegram.exe",
+    "instagram.exe",
+    "facebook.exe",
+    "slack.exe",
+    "messenger.exe",
+    # Media & Streaming
+    "spotify.exe",
+    "netflix.exe",
+    "twitch.exe",
+    "vlc.exe",
+    "hulu.exe",
+    "disneyplus.exe",
+}
 
 _is_blocked_state = False
 _mock_mode = False
@@ -134,6 +182,15 @@ def is_distraction_blocked(hosts_path: Optional[str] = None) -> bool:
             except Exception:
                 pass
         return False
+
+    # Also inspect database state
+    try:
+        state = db_manager.get_child_state()
+        if state.get("is_blocked", 0) == 1 or state.get("current_balance", 0) <= 0:
+            return True
+    except Exception:
+        pass
+
     return _is_blocked_state
 
 
@@ -286,7 +343,10 @@ def simulate_browser_request_to_domain(domain: str, port: int = 80, timeout: flo
 
 
 def enforce_active_distraction(window_title: Optional[str] = None) -> bool:
-    """Minimizes foreground window if matching distraction keywords."""
+    """
+    Minimizes or intercepts active foreground window if it matches distraction keywords.
+    Plays system alert sound to reinforce focus.
+    """
     if sys.platform != "win32":
         return False
 
@@ -306,20 +366,21 @@ def enforce_active_distraction(window_title: Optional[str] = None) -> bool:
             user32.GetWindowTextW(hwnd, buf, length + 1)
             curr_title = buf.value.strip().lower()
 
-        # Whitelist safe workspace tools
-        whitelist = ["demon", "visual studio", "antigravity", "cursor", "cmd", "powershell", "terminal", "python"]
+        # Whitelist safe study and development tools
+        whitelist = ["demon", "visual studio", "antigravity", "cursor", "cmd", "powershell", "terminal", "python", "word", "canvas"]
         if any(w in curr_title for w in whitelist):
             return False
 
         distraction_keywords = [
             "youtube", "youtu.be", "tiktok", "netflix",
-            "twitch", "reddit", "twitter", "instagram", "facebook", "roblox"
+            "twitch", "reddit", "twitter", "instagram", "facebook",
+            "roblox", "steam", "discord", "minecraft", "game"
         ]
 
         for kw in distraction_keywords:
             if kw in curr_title:
-                user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
-                user32.MessageBeep(0x00000010)  # Warning sound
+                user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE (Minimizes window to taskbar)
+                user32.MessageBeep(0x00000010)  # System warning alert sound
                 return True
     except Exception:
         pass
@@ -327,7 +388,7 @@ def enforce_active_distraction(window_title: Optional[str] = None) -> bool:
 
 
 # ==============================================================================
-# PROCESS TERMINATION & RESTRICTION ENFORCEMENT
+# STRICT PROACTIVE DISTRACTION PROCESS TERMINATION
 # ==============================================================================
 
 def terminate_process_by_name(process_name: str) -> bool:
@@ -348,8 +409,7 @@ def terminate_process_by_name(process_name: str) -> bool:
         return False
 
     try:
-        # Use Windows taskkill with CREATE_NO_WINDOW flag
-        creationflags = 0x08000000
+        creationflags = 0x08000000  # CREATE_NO_WINDOW
         result = subprocess.run(
             ["taskkill", "/F", "/T", "/IM", p_name],
             stdout=subprocess.PIPE,
@@ -361,21 +421,34 @@ def terminate_process_by_name(process_name: str) -> bool:
         return False
 
 
-def terminate_process_by_pid(pid: int) -> bool:
-    """Terminates process by PID using Win32 TerminateProcess API."""
-    if sys.platform != "win32" or pid <= 4:
-        return False
+def terminate_all_running_distractions() -> List[str]:
+    """
+    Scans the system for ANY running distraction applications and forcefully terminates them.
+    Called whenever distraction blocking is active.
+    Returns list of terminated process names.
+    """
+    if sys.platform != "win32":
+        return []
 
-    PROCESS_TERMINATE = 0x0001
-    kernel32 = ctypes.windll.kernel32
-    h_proc = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
-    if not h_proc:
-        return False
-
+    terminated = []
     try:
-        return bool(kernel32.TerminateProcess(h_proc, 1))
-    finally:
-        kernel32.CloseHandle(h_proc)
+        import user_tracker
+        tracker = user_tracker.WindowsProcessTracker()
+        running_names = tracker.get_running_process_names()
+
+        for proc in running_names:
+            p_lower = proc.lower()
+            if p_lower in KNOWN_DISTRACTION_PROCESSES:
+                if terminate_process_by_name(p_lower):
+                    terminated.append(p_lower)
+                    try:
+                        ctypes.windll.user32.MessageBeep(0x00000010)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    return terminated
 
 
 def enforce_rules(
@@ -384,39 +457,51 @@ def enforce_rules(
     db_path: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Orchestrates parental enforcement across the entire system:
-    1. Checks if child's allowed screen time is exhausted (balance <= 0) or locked.
-    2. Checks individual application rules and terminates restricted/over-limit apps.
-    3. Blocks or unblocks distraction domains.
-    Returns summary dict.
+    Master Parental Enforcement Orchestrator:
+    1. Distraction Blocking Active:
+       - If child balance <= 0 OR lockdown is active:
+         * Proactively blocks all distraction domains in hosts.
+         * Hunts and terminates ALL running distraction processes across the system.
+         * Minimizes active windows showing distraction titles.
+    2. Individual Application Limits:
+       - Evaluates time limits from enforcement_rules table and terminates over-limit apps.
     """
     state = db_manager.get_child_state(db_path=db_path)
     balance = state.get("current_balance", 0)
     is_blocked = state.get("is_blocked", 0)
 
+    is_lockdown_active = (balance <= 0 or is_blocked == 1)
     actions_taken: List[str] = []
 
-    # 1. System-wide balance exhaustion check
-    if balance <= 0 or is_blocked == 1:
+    # 1. Distraction Blocking Active (Strict Zero-Tolerance Mode)
+    if is_lockdown_active:
         if not is_distraction_blocked():
             block_distractions()
-            actions_taken.append("OS Distraction Domains Blocked (Allowed Time Expired / Locked)")
+            actions_taken.append("OS Distraction Domains Blocked (Zero-Tolerance Lockdown Active)")
 
-        # Terminate any non-whitelisted entertainment foreground process
+        # Proactively terminate all running distraction apps on the machine!
+        terminated_distractions = terminate_all_running_distractions()
+        for t in terminated_distractions:
+            actions_taken.append(f"Blocked & Terminated distraction process: '{t}'")
+            db_manager.update_balance(0, reason=f"[ZERO-TOLERANCE] Intercepted and terminated: {t}", db_path=db_path)
+
+        # Also inspect current foreground process
         if current_proc_name:
             curr = current_proc_name.lower()
-            entertainment = ["discord.exe", "steam.exe", "robloxplayerbeta.exe", "minecraft.exe", "epicgameslauncher.exe", "tiktok.exe"]
-            if any(e in curr for e in entertainment):
+            if curr in KNOWN_DISTRACTION_PROCESSES or any(d.replace(".exe", "") in curr for d in KNOWN_DISTRACTION_PROCESSES):
                 terminate_process_by_name(current_proc_name)
-                actions_taken.append(f"Terminated '{current_proc_name}' (Zero balance lockdown)")
+                actions_taken.append(f"Terminated foreground distraction '{current_proc_name}'")
+
+        # Intercept any distraction browser windows or media
+        enforce_active_distraction()
     else:
-        # Balance positive and not locked
+        # Time remaining and not in lockdown
         if is_distraction_blocked():
             unblock_distractions()
-            actions_taken.append("Restored Web Access (Positive Allowed Time)")
+            actions_taken.append("Restored Unrestricted Web & App Access")
 
-    # 2. Check individual application limits
-    if current_proc_name:
+    # 2. Check individual application limits (when not in full lockdown)
+    if current_proc_name and not is_lockdown_active:
         is_restricted, reason, rule = db_manager.check_process_restriction(current_proc_name, db_path=db_path)
         if is_restricted and rule:
             action = rule.get("action", "terminate")
@@ -431,13 +516,13 @@ def enforce_rules(
 
     return {
         "balance": balance,
-        "is_locked": is_blocked == 1 or balance <= 0,
+        "is_locked": is_lockdown_active,
         "actions_taken": actions_taken
     }
 
 
 if __name__ == "__main__":
-    print("[enforcement] Testing enforcement module...")
+    print("[enforcement] Testing zero-tolerance enforcement engine...")
     print(f"  Is Admin: {is_admin()}")
-    print(f"  Can write hosts: {can_write_hosts()}")
-    print(f"  Is domain blocked (youtube.com): {is_domain_blocked('youtube.com')}")
+    print(f"  Known distraction blacklisted apps: {len(KNOWN_DISTRACTION_PROCESSES)}")
+    print(f"  Distraction blocked status: {is_distraction_blocked()}")
