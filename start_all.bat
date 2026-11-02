@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 title Demon Study Monitor - Dual-View Launcher
 
 echo ======================================================================
-echo   DEMON PARENTAL CONTROL & STUDY MONITOR - RUNTIME LAUNCHER
+echo   DEMON PARENTAL CONTROL AND STUDY MONITOR - RUNTIME LAUNCHER
 echo ======================================================================
 echo.
 
@@ -21,33 +21,33 @@ if not defined PY_EXE (
 
 if not defined PY_EXE (
     echo [ERROR] Python not found in PATH or standard directories!
-    pause
     exit /b 1
 )
 
-:: 2. Launch Background Headless Tracker in new window
+echo [*] Using Python executable: "!PY_EXE!"
+
+:: 2. Launch Background Headless Tracker in detached window
 echo [*] Starting Headless Background Tracker (main.py)...
-start "Demon Background Tracker" !PY_EXE! main.py --verbose
+start "Demon Background Tracker" "!PY_EXE!" "%~dp0main.py" --verbose
 
 :: 3. Launch Parental Web Dashboard server
 echo [*] Starting Parental Web Dashboard (web_dashboard.py)...
-start "Demon Web Dashboard" !PY_EXE! web_dashboard.py
+start "Demon Web Dashboard" "!PY_EXE!" "%~dp0web_dashboard.py"
 
 :: 4. Launch Child Desktop App GUI
 echo [*] Starting Child Desktop App (desktop_app.py)...
-start "Demon Child App" !PY_EXE! desktop_app.py
+start "Demon Child App" "!PY_EXE!" "%~dp0desktop_app.py"
 
-:: 5. Open Dashboard in Browser
-timeout /t 2 >nul
+:: 5. Open Dashboard in Browser after brief pause
+ping 127.0.0.1 -n 3 >nul
 echo [*] Opening Parental Web Dashboard in default browser: http://localhost:8000
 start http://localhost:8000
 
 echo.
 echo ======================================================================
-echo   [SUCCESS] All 3 components are actively running!
-echo   1. Headless Background Tracker : Monitoring processes & enforcing rules
+echo   [SUCCESS] All 3 components successfully started!
+echo   1. Headless Background Tracker : Monitoring active apps ^& rules
 echo   2. Parental Web Dashboard      : http://localhost:8000
 echo   3. Child Desktop GUI App       : Displaying remaining study time
 echo ======================================================================
 echo.
-pause
