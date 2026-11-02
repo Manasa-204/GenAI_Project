@@ -7,16 +7,16 @@ echo   DEMON PARENTAL CONTROL & STUDY MONITOR - RUNTIME LAUNCHER
 echo ======================================================================
 echo.
 
-:: 1. Locate Python
+:: 1. Locate Real Python
 set "PY_EXE="
-where python >nul 2>&1 && set "PY_EXE=python"
+if exist "C:\Users\nihal\AppData\Local\Programs\Python\Python313\python.exe" (
+    set "PY_EXE=C:\Users\nihal\AppData\Local\Programs\Python\Python313\python.exe"
+)
 if not defined PY_EXE (
     where py >nul 2>&1 && set "PY_EXE=py"
 )
 if not defined PY_EXE (
-    if exist "C:\Users\nihal\AppData\Local\Programs\Python\Python313\python.exe" (
-        set "PY_EXE=C:\Users\nihal\AppData\Local\Programs\Python\Python313\python.exe"
-    )
+    where python >nul 2>&1 && set "PY_EXE=python"
 )
 
 if not defined PY_EXE (
