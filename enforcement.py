@@ -1,18 +1,21 @@
 """
-enforcement.py - Engineer 4: Systems & OS Enforcement Engine
-Responsible for administrative OS enforcement via the OS hosts file and DNS cache flushing.
-
-Task 1.4 Output:
-- block_distractions()
-- unblock_distractions()
+enforcement.py
+--------------
+Systems & OS Enforcement Engine for Parental Control.
+Handles:
+1. Domain-level website blocking via Windows hosts file and DNS resolver cache flushing.
+2. Direct Windows Process termination (taskkill / Win32 TerminateProcess) for blacklisted apps.
+3. Time limit enforcement and automated lockdown triggers.
 """
 
 import os
 import sys
 import ctypes
 import subprocess
-import tempfile
 import socket
+from typing import Optional, List, Dict, Any, Tuple
+
+import db_manager
 
 BLOCK_HEADER = "# === DEMON OS ENFORCEMENT BLOCK BEGIN ==="
 BLOCK_FOOTER = "# === DEMON OS ENFORCEMENT BLOCK END ==="
@@ -45,31 +48,42 @@ DEFAULT_DISTRACTION_DOMAINS = [
     "www.discord.com",
     "pinterest.com",
     "www.pinterest.com",
+    "roblox.com",
+    "www.roblox.com",
+    "steamcommunity.com",
+    "store.steampowered.com",
 ]
 
+_is_blocked_state = False
+_mock_mode = False
 
-def get_default_hosts_path():
-    """Returns the default system hosts file path depending on the OS."""
+
+def set_mock_mode(enabled: bool = True):
+    """Enable or disable mock enforcement mode for testing."""
+    global _mock_mode
+    _mock_mode = enabled
+
+
+def get_default_hosts_path() -> str:
+    """Returns default system hosts file path."""
     if sys.platform == "win32":
         system_root = os.environ.get("SystemRoot", r"C:\Windows")
         return os.path.join(system_root, "System32", "drivers", "etc", "hosts")
-    else:
-        return "/etc/hosts"
+    return "/etc/hosts"
 
 
-def is_admin():
-    """Check if the current process has administrative/root privileges."""
+def is_admin() -> bool:
+    """Checks if current process has Administrator privileges."""
     if sys.platform == "win32":
         try:
             return ctypes.windll.shell32.IsUserAnAdmin() != 0
         except Exception:
             return False
-    else:
-        return os.geteuid() == 0
+    return os.geteuid() == 0
 
 
-def flush_dns():
-    """Flushes the local OS DNS resolver cache."""
+def flush_dns() -> bool:
+    """Flushes OS DNS resolver cache."""
     try:
         if sys.platform == "win32":
             creationflags = 0x08000000  # CREATE_NO_WINDOW
@@ -90,7 +104,7 @@ def flush_dns():
         return False
 
 
-def _clean_hosts_content(content):
+def _clean_hosts_content(content: str) -> str:
     """Strips any existing DEMON enforcement block from hosts content."""
     lines = content.splitlines()
     cleaned = []
@@ -109,36 +123,22 @@ def _clean_hosts_content(content):
     return "\n".join(cleaned).rstrip() + "\n"
 
 
-_is_blocked_state = False
-_mock_mode = False
-
-
-def set_mock_mode(enabled: bool = True):
-    """Enable or disable mock enforcement mode."""
-    global _mock_mode
-    _mock_mode = enabled
-
-
-def is_distraction_blocked(hosts_path=None) -> bool:
-    """
-    Returns whether distractions are currently in the blocked state.
-    Checks the hosts file if path is specified, otherwise checks the internal state flag.
-    """
+def is_distraction_blocked(hosts_path: Optional[str] = None) -> bool:
+    """Returns whether distractions are currently in the blocked state."""
     global _is_blocked_state
     if hosts_path is not None:
         if os.path.exists(hosts_path):
             try:
                 with open(hosts_path, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-                    return BLOCK_HEADER in content
+                    return BLOCK_HEADER in f.read()
             except Exception:
                 pass
         return False
     return _is_blocked_state
 
 
-def can_write_hosts(hosts_path=None) -> bool:
-    """Checks whether the system or target hosts file is directly writeable."""
+def can_write_hosts(hosts_path: Optional[str] = None) -> bool:
+    """Checks whether target hosts file is writeable."""
     target_path = hosts_path or get_default_hosts_path()
     try:
         with open(target_path, "a", encoding="utf-8") as f:
@@ -148,10 +148,8 @@ def can_write_hosts(hosts_path=None) -> bool:
         return False
 
 
-def _trigger_uac_grant_permission():
-    """
-    Launches Grant_Hosts_Permission.bat to allow the user to elevate via UAC and grant write permission to hosts.
-    """
+def _trigger_uac_grant_permission() -> bool:
+    """Triggers Grant_Hosts_Permission.bat via UAC elevation if available."""
     if sys.platform != "win32":
         return False
     bat_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Grant_Hosts_Permission.bat")
@@ -164,74 +162,13 @@ def _trigger_uac_grant_permission():
     return False
 
 
-def enforce_active_distraction(window_title=None):
+def block_distractions(
+    domains: Optional[List[str]] = None,
+    hosts_path: Optional[str] = None,
+    force_flush: bool = True
+) -> List[str]:
     """
-    Active window enforcement (Real-time distraction interceptor):
-    If distractions are currently blocked and the active foreground window
-    is a known distraction (YouTube, TikTok, Netflix, Twitch, etc.),
-    immediately minimizes the window to taskbar and sounds an alert to enforce focus.
-    Returns True if an active distraction was intercepted and minimized.
-    """
-    global _is_blocked_state, _mock_mode
-    if _mock_mode or not _is_blocked_state:
-        return False
-
-    if sys.platform != "win32":
-        return False
-
-    hdesk = None
-    try:
-        user32 = ctypes.windll.user32
-        hdesk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
-        if hdesk:
-            user32.SetThreadDesktop(hdesk)
-
-        hwnd = user32.GetForegroundWindow()
-        if not hwnd or not user32.IsWindowVisible(hwnd):
-            return False
-
-        if window_title:
-            curr_title = window_title.strip().lower()
-        else:
-            length = user32.GetWindowTextLengthW(hwnd)
-            if length <= 0:
-                return False
-            buf = ctypes.create_unicode_buffer(length + 1)
-            user32.GetWindowTextW(hwnd, buf, length + 1)
-            curr_title = buf.value.strip().lower()
-
-        # Whitelist safe workspace tools so we never minimize developer IDE or terminal
-        whitelist = ["demon", "visual studio", "antigravity", "cursor", "cmd", "powershell", "terminal", "bash", "python"]
-        if any(w in curr_title for w in whitelist):
-            return False
-
-        distraction_keywords = [
-            "youtube", "youtu.be", "tiktok", "netflix",
-            "twitch", "reddit", "twitter", "instagram", "facebook"
-        ]
-
-        for kw in distraction_keywords:
-            if kw in curr_title:
-                # 6 = SW_MINIMIZE: Minimizes window to taskbar
-                user32.ShowWindow(hwnd, 6)
-                # 0x00000010 = MB_ICONHAND: System warning alert sound
-                user32.MessageBeep(0x00000010)
-                return True
-    except Exception:
-        pass
-    finally:
-        if hdesk and 'user32' in locals() and hasattr(user32, 'CloseDesktop'):
-            try:
-                user32.CloseDesktop(hdesk)
-            except Exception:
-                pass
-    return False
-
-
-def block_distractions(domains=None, hosts_path=None, force_flush=True):
-    """
-    Blocks distraction domains by redirecting them to 0.0.0.0, 127.0.0.1 and ::1 in the hosts file.
-    Applies directly if running as Administrator or if user write permission is granted.
+    Blocks distraction domains by redirecting to 0.0.0.0, 127.0.0.1, and ::1.
     """
     global _is_blocked_state, _mock_mode
     if domains is None:
@@ -251,7 +188,6 @@ def block_distractions(domains=None, hosts_path=None, force_flush=True):
 
         cleaned_content = _clean_hosts_content(existing_content)
 
-        # Build enforcement block with 0.0.0.0, 127.0.0.1 and ::1
         block_lines = [
             BLOCK_HEADER,
             f"# Total blocked domains: {len(domains)}",
@@ -285,10 +221,8 @@ def block_distractions(domains=None, hosts_path=None, force_flush=True):
         return domains
 
 
-def unblock_distractions(hosts_path=None, force_flush=True):
-    """
-    Removes the DEMON enforcement block, restoring full access.
-    """
+def unblock_distractions(hosts_path: Optional[str] = None, force_flush: bool = True) -> bool:
+    """Removes the DEMON enforcement block, restoring domain access."""
     global _is_blocked_state, _mock_mode
     if _mock_mode:
         _is_blocked_state = False
@@ -311,19 +245,13 @@ def unblock_distractions(hosts_path=None, force_flush=True):
 
         _is_blocked_state = False
         return True
-    except PermissionError:
-        _is_blocked_state = False
-        return True
     except Exception:
         _is_blocked_state = False
         return True
 
 
-
-def is_domain_blocked(domain, hosts_path=None):
-    """
-    Verifies if a specific domain is currently routed to localhost in the hosts file.
-    """
+def is_domain_blocked(domain: str, hosts_path: Optional[str] = None) -> bool:
+    """Verifies if domain is currently in blocked state."""
     target_path = hosts_path or get_default_hosts_path()
     if not os.path.exists(target_path):
         return False
@@ -347,15 +275,169 @@ def is_domain_blocked(domain, hosts_path=None):
     return False
 
 
-def simulate_browser_request_to_domain(domain, port=80, timeout=1.0):
-    """
-    Simulates a browser HTTP socket connection to test domain reachability.
-    When blocked by hosts file pointing to 127.0.0.1 (where no server is listening on port 80),
-    the connection will be refused locally, proving browser access is blocked.
-    """
+def simulate_browser_request_to_domain(domain: str, port: int = 80, timeout: float = 1.0) -> str:
+    """Tests socket connection to domain to verify reachability."""
     try:
         s = socket.create_connection((domain, port), timeout=timeout)
         s.close()
         return "REACHABLE"
     except (ConnectionRefusedError, socket.timeout, OSError) as e:
         return f"BLOCKED ({type(e).__name__})"
+
+
+def enforce_active_distraction(window_title: Optional[str] = None) -> bool:
+    """Minimizes foreground window if matching distraction keywords."""
+    if sys.platform != "win32":
+        return False
+
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd or not user32.IsWindowVisible(hwnd):
+            return False
+
+        if window_title:
+            curr_title = window_title.strip().lower()
+        else:
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length <= 0:
+                return False
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buf, length + 1)
+            curr_title = buf.value.strip().lower()
+
+        # Whitelist safe workspace tools
+        whitelist = ["demon", "visual studio", "antigravity", "cursor", "cmd", "powershell", "terminal", "python"]
+        if any(w in curr_title for w in whitelist):
+            return False
+
+        distraction_keywords = [
+            "youtube", "youtu.be", "tiktok", "netflix",
+            "twitch", "reddit", "twitter", "instagram", "facebook", "roblox"
+        ]
+
+        for kw in distraction_keywords:
+            if kw in curr_title:
+                user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
+                user32.MessageBeep(0x00000010)  # Warning sound
+                return True
+    except Exception:
+        pass
+    return False
+
+
+# ==============================================================================
+# PROCESS TERMINATION & RESTRICTION ENFORCEMENT
+# ==============================================================================
+
+def terminate_process_by_name(process_name: str) -> bool:
+    """
+    Terminates all running instances of the specified process name.
+    Uses Win32 TerminateProcess with taskkill /F fallback.
+    """
+    if sys.platform != "win32":
+        return True
+
+    p_name = process_name.strip().lower()
+    if not p_name:
+        return False
+
+    # Prevent accidentally killing critical system processes
+    protected = ["explorer.exe", "svchost.exe", "csrss.exe", "winlogon.exe", "services.exe", "taskmgr.exe", "demon.exe"]
+    if p_name in protected:
+        return False
+
+    try:
+        # Use Windows taskkill with CREATE_NO_WINDOW flag
+        creationflags = 0x08000000
+        result = subprocess.run(
+            ["taskkill", "/F", "/T", "/IM", p_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=creationflags
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def terminate_process_by_pid(pid: int) -> bool:
+    """Terminates process by PID using Win32 TerminateProcess API."""
+    if sys.platform != "win32" or pid <= 4:
+        return False
+
+    PROCESS_TERMINATE = 0x0001
+    kernel32 = ctypes.windll.kernel32
+    h_proc = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+    if not h_proc:
+        return False
+
+    try:
+        return bool(kernel32.TerminateProcess(h_proc, 1))
+    finally:
+        kernel32.CloseHandle(h_proc)
+
+
+def enforce_rules(
+    current_proc_name: str = "",
+    current_pid: int = 0,
+    db_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Orchestrates parental enforcement across the entire system:
+    1. Checks if child's allowed screen time is exhausted (balance <= 0) or locked.
+    2. Checks individual application rules and terminates restricted/over-limit apps.
+    3. Blocks or unblocks distraction domains.
+    Returns summary dict.
+    """
+    state = db_manager.get_child_state(db_path=db_path)
+    balance = state.get("current_balance", 0)
+    is_blocked = state.get("is_blocked", 0)
+
+    actions_taken: List[str] = []
+
+    # 1. System-wide balance exhaustion check
+    if balance <= 0 or is_blocked == 1:
+        if not is_distraction_blocked():
+            block_distractions()
+            actions_taken.append("OS Distraction Domains Blocked (Allowed Time Expired / Locked)")
+
+        # Terminate any non-whitelisted entertainment foreground process
+        if current_proc_name:
+            curr = current_proc_name.lower()
+            entertainment = ["discord.exe", "steam.exe", "robloxplayerbeta.exe", "minecraft.exe", "epicgameslauncher.exe", "tiktok.exe"]
+            if any(e in curr for e in entertainment):
+                terminate_process_by_name(current_proc_name)
+                actions_taken.append(f"Terminated '{current_proc_name}' (Zero balance lockdown)")
+    else:
+        # Balance positive and not locked
+        if is_distraction_blocked():
+            unblock_distractions()
+            actions_taken.append("Restored Web Access (Positive Allowed Time)")
+
+    # 2. Check individual application limits
+    if current_proc_name:
+        is_restricted, reason, rule = db_manager.check_process_restriction(current_proc_name, db_path=db_path)
+        if is_restricted and rule:
+            action = rule.get("action", "terminate")
+            if action == "terminate":
+                killed = terminate_process_by_name(current_proc_name)
+                if killed:
+                    actions_taken.append(f"Terminated '{current_proc_name}': {reason}")
+                    db_manager.update_balance(0, reason=f"Enforcement Terminated: {current_proc_name} ({reason})", db_path=db_path)
+            elif action == "minimize":
+                enforce_active_distraction()
+                actions_taken.append(f"Minimized '{current_proc_name}': {reason}")
+
+    return {
+        "balance": balance,
+        "is_locked": is_blocked == 1 or balance <= 0,
+        "actions_taken": actions_taken
+    }
+
+
+if __name__ == "__main__":
+    print("[enforcement] Testing enforcement module...")
+    print(f"  Is Admin: {is_admin()}")
+    print(f"  Can write hosts: {can_write_hosts()}")
+    print(f"  Is domain blocked (youtube.com): {is_domain_blocked('youtube.com')}")

@@ -1,32 +1,49 @@
 @echo off
 setlocal enabledelayedexpansion
-title Demon Study Monitor - Standalone Build Pipeline
+title Demon Study Monitor - Headless Tracker Build Pipeline
 
 echo ======================================================================
-echo   DEMON STUDY MONITOR - WINDOWS STANDALONE BUILD PIPELINE
+echo   DEMON PARENTAL MONITOR - HEADLESS BACKGROUND TRACKER BUILD PIPELINE
 echo ======================================================================
 echo.
 
-:: 1. Check Python
-where python >nul 2>&1
-if %errorLevel% neq 0 (
-    echo [ERROR] Python not found in PATH!
+:: 1. Locate Python
+set "PY_CMD="
+where python >nul 2>&1 && set "PY_CMD=python"
+if not defined PY_CMD (
+    where py >nul 2>&1 && set "PY_CMD=py"
+)
+if not defined PY_CMD (
+    if exist "C:\Users\nihal\AppData\Local\Programs\Python\Python313\python.exe" (
+        set "PY_CMD=C:\Users\nihal\AppData\Local\Programs\Python\Python313\python.exe"
+    )
+)
+
+if not defined PY_CMD (
+    echo [ERROR] Python not found in PATH or standard directories!
     pause
     exit /b 1
 )
 
-:: 2. Check PyInstaller
-python -c "import PyInstaller" >nul 2>&1
+echo [*] Using Python: "!PY_CMD!"
+echo.
+
+:: 2. Check for PyInstaller
+!PY_CMD! -c "import PyInstaller" >nul 2>&1
 if %errorLevel% neq 0 (
-    echo [*] Installing PyInstaller and PyWebView...
-    pip install pyinstaller pywebview
+    echo [*] Installing PyInstaller...
+    !PY_CMD! -m pip install pyinstaller
 )
 
 :: 3. Run PyInstaller Compilation
 echo.
-echo [*] Compiling standalone distribution with PyInstaller...
-echo     Specification: Demon.spec
-pyinstaller --noconfirm --clean Demon.spec
+echo [*] Compiling headless background tracker with PyInstaller...
+echo     Specification : Demon.spec
+echo     Console Mode  : False (Completely Hidden)
+echo     Target Script : main.py
+echo.
+
+!PY_CMD! -m PyInstaller --noconfirm --clean Demon.spec
 
 if not exist "dist\Demon\Demon.exe" (
     echo.
@@ -37,37 +54,12 @@ if not exist "dist\Demon\Demon.exe" (
 
 echo.
 echo ======================================================================
-echo   [SUCCESS] PyInstaller compilation finished!
+echo   [SUCCESS] Headless Background Tracker Compiled Successfully!
 echo   Output Directory: dist\Demon\
 echo   Executable:       dist\Demon\Demon.exe
 echo ======================================================================
 echo.
-
-:: 4. Check for Inno Setup compiler (ISCC.exe)
-set "ISCC_PATH="
-if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC_PATH=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
-if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC_PATH=%ProgramFiles%\Inno Setup 6\ISCC.exe"
-where iscc >nul 2>&1 && for /f "delims=" %%i in ('where iscc') do set "ISCC_PATH=%%i"
-
-if defined ISCC_PATH (
-    echo [*] Inno Setup compiler detected: "!ISCC_PATH!"
-    echo [*] Compiling single installer (DemonSetup-v1.0.exe)...
-    "!ISCC_PATH!" setup.iss
-    if %errorLevel% == 0 (
-        echo.
-        echo ==================================================================
-        echo   [SUCCESS] Single Installer Created Successfully!
-        echo   Installer: Output\DemonSetup-v1.0.exe
-        echo ==================================================================
-    )
-) else (
-    echo [NOTE] Inno Setup 6 not found in standard directories.
-    echo        To build the single DemonSetup-v1.0.exe installer, install Inno Setup 6
-    echo        from https://jrsoftware.org/isdl.php and re-run build_exe.bat.
-    echo.
-    echo        You can run Demon standalone directly from:
-    echo        dist\Demon\Demon.exe
-)
-
+echo   Next Step: Run install_background_service.bat to register Demon.exe
+echo              in Windows Task Scheduler to run at startup with Highest Privileges.
 echo.
 pause
