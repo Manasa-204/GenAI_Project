@@ -1,41 +1,54 @@
 # -*- mode: python ; coding: utf-8 -*-
+"""
+Demon.spec
+----------
+PyInstaller specification file to compile main.py into a completely hidden,
+headless Windows background tracker executable (Demon.exe).
+
+Key configurations:
+- Entry point: main.py
+- console=False (or --noconsole): Prevents any Command Prompt or console window
+  from appearing when the background service executes.
+- Lightweight bundling: Zero heavy GUI/ML runtime overhead.
+"""
+
 import sys
 import os
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
-# Collect all dynamic assets and binary protobuf graphs for MediaPipe
-mediapipe_datas = collect_data_files('mediapipe')
-mediapipe_submodules = collect_submodules('mediapipe')
-
-added_files = [
-    ('Grant_Hosts_Permission.bat', '.'),
-    ('README.md', '.'),
-] + mediapipe_datas
+added_files = []
+if os.path.exists('Grant_Hosts_Permission.bat'):
+    added_files.append(('Grant_Hosts_Permission.bat', '.'))
 
 a = Analysis(
-    ['desktop_app.py'],
+    ['main.py'],
     pathex=['.'],
     binaries=[],
     datas=added_files,
     hiddenimports=[
-        'cv2',
-        'mediapipe',
-        'requests',
-        'pygetwindow',
         'sqlite3',
-        'webview',
-        'clr',
-        'pythonnet',
-        'clr_loader',
-        'matplotlib',
-        'matplotlib.pyplot',
-    ] + mediapipe_submodules,
+        'ctypes',
+        'subprocess',
+        'socket',
+        'db_manager',
+        'user_tracker',
+        'enforcement',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['tkinter', 'IPython'],
+    excludes=[
+        'tkinter',
+        'matplotlib',
+        'scipy',
+        'numpy',
+        'torch',
+        'IPython',
+        'PIL',
+        'cv2',
+        'mediapipe',
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -54,13 +67,13 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=False,
+    console=False,                  # STRICTLY HEADLESS: No command prompt window
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    uac_admin=False,
+    uac_admin=False,                # Task Scheduler elevates with /rl HIGHEST directly
 )
 
 coll = COLLECT(

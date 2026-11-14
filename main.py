@@ -1,62 +1,53 @@
 """
-main.py - Demon Master Runtime & Live Attention HUD
-Coordinates Engineer 1 (Logic), Engineer 2 (Vision), Engineer 3 (Semantic NLP), and Engineer 4 (OS Enforcement).
+main.py - Headless Background Tracker & Orchestrator
+---------------------------------------------------
+Acts strictly as a headless orchestrator running in the background.
+Initializes:
+1. db_manager.py: Shared SQLite database (study_monitor.db)
+2. user_tracker.py: Windows process & foreground application tracking
+3. enforcement.py: Rule enforcement, process termination & distraction blocking
 
-Usage:
-  python main.py                    # Standard 5s polling orchestrator loop (safe mode)
-  python main.py --poll-interval 1.0 --reset-balance 10 --max-cycles 6  # Fast demo mode
-  python main.py --hud              # Run live Attention HUD console
-  python main.py --enforce-real     # Live system hosts enforcement (Requires Administrator)
-  python main.py --no-camera        # Headless mode without webcam
+Runs in an efficient continuous loop (while True) with optimized sleep intervals
+to maintain negligible CPU usage (<0.1%).
 """
 
 import sys
 import time
 import os
-import argparse
-import atexit
 import signal
-import tempfile
+import atexit
+import argparse
 from typing import Optional
 
 import db_manager
-import logic_controller
+import user_tracker
 import enforcement
-import enforcement as eng4
 
-try:
-    from orchestrator import DemonOrchestrator, PhysicalState
-except ImportError:
-    DemonOrchestrator = None
-    PhysicalState = None
-
-
+_is_running = True
 _cleaned_up = False
 
 
 def cleanup_on_exit():
-    """
-    Task 4.2: Graceful Shutdown Handler.
-    Guarantees that distractions are unblocked upon program exit or crash,
-    preventing the user from being locked out of websites.
-    """
+    """Safe exit handler to ensure hosts file and database remain consistent."""
     global _cleaned_up
-    try:
-        enforcement.unblock_distractions()
-        if not _cleaned_up:
-            _cleaned_up = True
-            print("\n[main] Executing safe shutdown cleanup: Distractions unblocked.")
-    except Exception as e:
-        print(f"\n[main] Warning during cleanup: {e}", file=sys.stderr)
+    if not _cleaned_up:
+        _cleaned_up = True
+        try:
+            # When stopping the service cleanly, restore domain access if child has balance
+            balance = db_manager.get_current_balance()
+            if balance > 0:
+                enforcement.unblock_distractions()
+        except Exception:
+            pass
 
 
-# Register exit handlers for unexpected termination
 atexit.register(cleanup_on_exit)
 
 
 def signal_handler(signum, frame):
-    """Handles SIGINT (Ctrl+C) and SIGTERM cleanly."""
-    print(f"\n[main] Termination signal received ({signum}). Shutting down gracefully...")
+    """Handles OS termination signals cleanly."""
+    global _is_running
+    _is_running = False
     cleanup_on_exit()
     sys.exit(0)
 
@@ -66,250 +57,94 @@ if hasattr(signal, "SIGTERM"):
     signal.signal(signal.SIGTERM, signal_handler)
 
 
-def run_orchestrator_step(
+def run_orchestrator_cycle(
+    tracker: user_tracker.WindowsProcessTracker,
+    interval: float = 1.0,
     db_path: Optional[str] = None,
-    csv_path: Optional[str] = None
+    verbose: bool = False
 ) -> dict:
     """
-    Executes a single orchestrated step according to Eng 1 specification:
-    1. Evaluates logic cycle (AND gate + updates DB + logs CSV).
-    2. Checks current balance and semantic state.
-    3. Triggers enforcement rules (Task 3.1):
-       - If balance <= 0 and semantic_state == 'DISTRACTION':
-             enforcement.block_distractions()
-       - If balance > 0:
-             enforcement.unblock_distractions()
+    Executes a single headless orchestration cycle:
+    1. Inspects foreground window and running process.
+    2. Logs process usage to study_monitor.db.
+    3. Decrements active screen time balance if consuming time.
+    4. Enforces parental restrictions and terminates blocked applications.
     """
-    result = logic_controller.evaluate_cycle(db_path=db_path, csv_path=csv_path)
-    current_balance = result["new_balance"]
-    semantic_state = result["semantic_state"]
+    # 1. Track active application
+    tick = tracker.track_tick(delta_seconds=interval)
+    proc_name = tick.get("process_name", "")
+    pid = tick.get("pid", 0)
 
-    if current_balance <= 0 and semantic_state == "DISTRACTION":
-        print(f"[main] Enforcement Rule Triggered: Balance <= 0 ({current_balance}s) & Distraction active.")
-        enforcement.block_distractions()
-        enforcement.enforce_active_distraction()
-    elif current_balance > 0:
-        if enforcement.is_distraction_blocked():
-            print(f"[main] Balance positive ({current_balance}s): Restoring access.")
-        enforcement.unblock_distractions()
+    # 2. Decrement remaining allowed time if active and balance > 0
+    balance = db_manager.get_current_balance(db_path=db_path)
+    if balance > 0:
+        # Subtract the tick interval
+        new_balance = db_manager.update_balance(
+            delta=-int(round(interval)),
+            reason=f"Active: {proc_name or 'Idle'}",
+            clamp_min=0,
+            db_path=db_path
+        )
+    else:
+        new_balance = balance
+
+    # 3. Enforce parental rules (Process termination & domain blocking)
+    enf_result = enforcement.enforce_rules(
+        current_proc_name=proc_name,
+        current_pid=pid,
+        db_path=db_path
+    )
+
+    if verbose and (proc_name or enf_result["actions_taken"]):
+        actions = ", ".join(enf_result["actions_taken"]) if enf_result["actions_taken"] else "None"
+        print(f"[Tracker] App: {proc_name:20s} | Bal: {new_balance:5d}s | Locked: {enf_result['is_locked']} | Actions: {actions}")
 
     return {
-        **result,
-        "is_blocked": enforcement.is_distraction_blocked()
+        "process_name": proc_name,
+        "pid": pid,
+        "balance": new_balance,
+        "is_locked": enf_result["is_locked"],
+        "actions_taken": enf_result["actions_taken"]
     }
 
 
-def print_banner():
-    banner = r"""
-  ____  _____ __  __  ___  _   _ 
- |  _ \| ____|  \/  |/ _ \| \ | |
- | | | |  _| | |\/| | | | |  \| |  Multi-Agent Attention Daemon
- | |_| | |___| |  | | |_| | |\  |  [Eng 1: Logic | Eng 2: Vision | Eng 3: NLP | Eng 4: OS]
- |____/|_____|_|  |_|\___/|_| \_|
-    """
-    print(banner)
-
-
-def run_hud_mode(args):
-    """Runs the high-frequency HUD daemon with live attention scoring."""
-    if DemonOrchestrator is None:
-        print("[ERROR] DemonOrchestrator could not be imported from orchestrator.py.")
-        sys.exit(1)
-
-    is_admin = eng4.is_admin()
-    if args.enforce_real:
-        if not is_admin:
-            print("[ERROR] --enforce-real was specified but this terminal is NOT running as Administrator.")
-            print("Please reopen PowerShell or Terminal with 'Run as Administrator'.")
-            sys.exit(1)
-        hosts_path = None
-        mode_desc = "[LIVE SYSTEM ENFORCEMENT - ADMIN]"
-    else:
-        temp_hosts = tempfile.NamedTemporaryFile(mode="w+", delete=False, encoding="utf-8")
-        temp_hosts.write("# Demon Sandbox Hosts\n127.0.0.1 localhost\n::1 localhost\n")
-        temp_hosts.close()
-        hosts_path = temp_hosts.name
-        mode_desc = f"[SAFE SANDBOX MODE] -> {hosts_path}"
-
-    print(f"Mode: {mode_desc}")
-    print(f"Distraction Grace Period: {args.grace_period}s | Recovery Period: {args.recovery_period}s")
-    print(f"Webcam Active: {not args.no_camera}\n")
-    print("Press Ctrl+C to stop.\n" + "-" * 70)
-
-    def on_warning(seconds_left):
-        print(f"\n  [!] WARNING: Distraction detected! OS Block in {seconds_left:.1f}s...")
-
-    def on_enforcement(is_blocked):
-        if is_blocked:
-            print("\n  [>>>] ENFORCEMENT TRIGGERED: Predefined distraction domains BLOCKED.")
-        else:
-            print("\n  [<<<] RECOVERY CONFIRMED: Distraction domains UNBLOCKED. Focus restored.")
-
-    orchestrator = DemonOrchestrator(
-        distraction_grace_period=args.grace_period,
-        recovery_period=args.recovery_period,
-        hosts_path=hosts_path,
-        use_camera=not args.no_camera,
-        on_warning=on_warning,
-        on_enforcement=on_enforcement,
-    )
-
-    try:
-        last_time = time.time()
-        while True:
-            now = time.time()
-            delta = now - last_time
-            last_time = now
-
-            if not args.no_camera:
-                frame = orchestrator.vision_pipeline._get_camera_frame()
-                physical = orchestrator.poll_vision(frame=frame)
-                v_res = orchestrator.vision_pipeline.process_frame(frame)
-                ear_str = f"EAR:{v_res['ear']:.2f}"
-                pose_str = f"Yaw:{v_res['head_pose'][1]:.0f}°"
-            else:
-                physical = PhysicalState.ACTIVE
-                ear_str = "EAR:N/A"
-                pose_str = "Yaw:N/A"
-
-            semantic, title = orchestrator.poll_semantic()
-            short_title = (title[:30] + "..") if len(title) > 30 else title
-
-            attention = orchestrator.evaluate_tick(
-                physical, semantic, window_title=title, current_time=now
-            )
-            orchestrator.telemetry.update(attention, delta)
-
-            state_tag = f"[{attention.value}]"
-            block_tag = "[BLOCKED]" if orchestrator.is_enforcement_active else "[CLEAR]"
-            telemetry = orchestrator.telemetry.get_summary()
-
-            hud_line = (
-                f"\r{state_tag:19s} {block_tag:8s} | "
-                f"{ear_str:8s} {pose_str:8s} | "
-                f"Window: \"{short_title:32s}\" | "
-                f"Score: {telemetry['focus_score_percentage']:.0f}%"
-            )
-            print(hud_line, end="", flush=True)
-            time.sleep(0.5)
-
-    except KeyboardInterrupt:
-        print("\n\nShutting down Demon orchestrator...")
-    finally:
-        orchestrator.stop_daemon()
-        if hosts_path and os.path.exists(hosts_path) and not args.enforce_real:
-            try:
-                os.remove(hosts_path)
-            except Exception:
-                pass
-
-        summary = orchestrator.telemetry.get_summary()
-        print("\n" + "=" * 60)
-        print(" SESSION FOCUS SUMMARY")
-        print("=" * 60)
-        print(f" Total Session Time : {summary['session_duration_seconds']}s")
-        print(f" Focused Time       : {summary['focused_seconds']}s")
-        print(f" Distracted Time    : {summary['distracted_seconds']}s")
-        print(f" Drowsy Time        : {summary['drowsy_seconds']}s")
-        print(f" Away Time          : {summary['away_seconds']}s")
-        print(f" Final Focus Score  : {summary['focus_score_percentage']}%")
-        print(f" Blocks Enforced    : {summary['enforcement_blocks_triggered']}")
-        print("=" * 60)
-
-
 def main():
-    parser = argparse.ArgumentParser(
-        description="AI-Driven Contextual Study Monitor - Orchestrator (Demon)"
-    )
-    parser.add_argument(
-        "--poll-interval",
-        type=float,
-        default=5.0,
-        help="Polling interval in seconds for standard cycle (default: 5.0)"
-    )
-    parser.add_argument(
-        "--reset-balance",
-        type=int,
-        default=None,
-        help="Reset initial balance to specified value before starting"
-    )
-    parser.add_argument(
-        "--max-cycles",
-        type=int,
-        default=None,
-        help="Run for N cycles and then stop (useful for testing)"
-    )
-    parser.add_argument(
-        "--enforce-real",
-        action="store_true",
-        help="Enforce OS hosts file directly on system C:\\Windows\\System32\\drivers\\etc\\hosts (Admin required)"
-    )
-    parser.add_argument(
-        "--no-camera",
-        action="store_true",
-        help="Disable camera feed (test semantic scraping and enforcement only)"
-    )
-    parser.add_argument(
-        "--hud",
-        action="store_true",
-        help="Run high-frequency live Attention HUD daemon"
-    )
-    parser.add_argument(
-        "--grace-period",
-        type=float,
-        default=8.0,
-        help="Distraction grace period in seconds before blocking (default: 8.0s)"
-    )
-    parser.add_argument(
-        "--recovery-period",
-        type=float,
-        default=5.0,
-        help="Focused recovery period in seconds before unblocking (default: 5.0s)"
-    )
-    parser.add_argument(
-        "--enroll",
-        action="store_true",
-        help="Calibrate and enroll primary user via webcam"
-    )
+    parser = argparse.ArgumentParser(description="Demon Headless Background Tracker Service")
+    parser.add_argument("--interval", type=float, default=1.0, help="Polling interval in seconds (default: 1.0s)")
+    parser.add_argument("--verbose", action="store_true", help="Print debug information to console")
+    parser.add_argument("--max-cycles", type=int, default=None, help="Stop after N cycles (for automated tests)")
     args = parser.parse_args()
 
-    if args.enroll:
-        import user_tracker
-        user_tracker.run_cli_enrollment()
-        return
-
-    if args.hud:
-        run_hud_mode(args)
-        return
-
-    print_banner()
-
-    # Initialize Database (Sprint 1)
+    # 1. Initialize Shared Database
     db_manager.init_db()
-    if args.reset_balance is not None:
-        db_manager.reset_balance(args.reset_balance)
-        print(f"[main] Balance reset to: {args.reset_balance} units")
 
-    balance = db_manager.get_current_balance()
-    print(f"[main] System starting. Active Balance: {balance} units.")
-    print(f"[main] Polling loop running every {args.poll_interval}s. Press Ctrl+C to quit.")
+    # 2. Initialize Process Monitor
+    tracker = user_tracker.WindowsProcessTracker()
 
-    cycle_count = 0
+    if args.verbose:
+        print("=" * 65)
+        print(" DEMON HEADLESS BACKGROUND TRACKER STARTED")
+        print(f" Polling Interval : {args.interval}s")
+        print(f" Database Path    : {db_manager.DEFAULT_DB_PATH}")
+        print("=" * 65)
+
+    cycles = 0
     try:
-        while True:
-            cycle_count += 1
-            print(f"\n--- [Cycle #{cycle_count}] ---")
-            step = run_orchestrator_step()
-            print(f"Status: Balance={step['new_balance']} | Blocked={step['is_blocked']}")
+        while _is_running:
+            cycles += 1
+            run_orchestrator_cycle(
+                tracker=tracker,
+                interval=args.interval,
+                verbose=args.verbose
+            )
 
-            if args.max_cycles and cycle_count >= args.max_cycles:
-                print(f"[main] Completed {args.max_cycles} cycles. Stopping.")
+            if args.max_cycles and cycles >= args.max_cycles:
                 break
 
-            time.sleep(args.poll_interval)
+            time.sleep(args.interval)
 
     except KeyboardInterrupt:
-        print("\n[main] Polling loop stopped by user.")
+        pass
     finally:
         cleanup_on_exit()
 
