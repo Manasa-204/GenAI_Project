@@ -34,6 +34,8 @@ a = Analysis(
         'db_manager',
         'user_tracker',
         'enforcement',
+        'logic_controller',
+        'policy_engine',
     ],
     hookspath=[],
     hooksconfig={},

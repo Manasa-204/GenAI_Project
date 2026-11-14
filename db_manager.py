@@ -1,17 +1,19 @@
 """
 db_manager.py
 -------------
-Unified Database Manager for Parental Control & Study Monitor.
-Manages SQLite storage for:
-1. user_state: Child balance, allowed screen time, and lock state.
-2. time_logs: Historical balance and rule enforcement transaction logs.
-3. tracked_processes: Windows applications detected, active time today, total time.
-4. enforcement_rules: Parental rules, daily time limits, and blocking status.
+Unified Database Manager for Parental Control, RBAC & Study Monitor.
+Features:
+1. Cryptographic Parent Authentication (PBKDF2-HMAC-SHA256, 100,000 iterations, 16-byte salt).
+2. Role Separation & Profiles (Student vs Parent Admin).
+3. Comprehensive Policy Engine tables (app_policies, parent_alerts, daily_focus_metrics).
+4. Full backward-compatibility with user_state, time_logs, and tracked_processes.
 """
 
 import sqlite3
 import os
 import sys
+import hashlib
+import secrets
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any, Tuple
 from contextlib import contextmanager
@@ -32,11 +34,25 @@ def get_default_db_path() -> str:
 DEFAULT_DB_PATH = get_default_db_path()
 _initialized_dbs = set()
 
+# In-memory / session role state
+_CURRENT_ROLE = "STUDENT"
+
+
+def get_current_role() -> str:
+    return _CURRENT_ROLE
+
+
+def set_current_role(role: str) -> str:
+    global _CURRENT_ROLE
+    if role in ("STUDENT", "PARENT"):
+        _CURRENT_ROLE = role
+    return _CURRENT_ROLE
+
 
 @contextmanager
 def get_db(db_path: Optional[str] = None):
     """
-    Context manager that yields a SQLite connection with WAL journal mode
+    Context manager yielding a SQLite connection with WAL journal mode
     and busy timeout for high-concurrency multi-process read/write access.
     """
     target_path = db_path or DEFAULT_DB_PATH
@@ -53,13 +69,28 @@ def get_db(db_path: Optional[str] = None):
         conn.close()
 
 
+def _hash_secret(secret_str: str, salt_bytes: bytes) -> str:
+    """Computes PBKDF2-HMAC-SHA256 with 100,000 iterations."""
+    dk = hashlib.pbkdf2_hmac(
+        "sha256",
+        secret_str.encode("utf-8"),
+        salt_bytes,
+        100000
+    )
+    return dk.hex()
+
+
 def init_db(db_path: Optional[str] = None) -> None:
     """
-    Initializes database schema if tables do not already exist:
-    - user_state: current allowed balance (in seconds), daily limits, locked status.
-    - time_logs: audit ledger for time changes and parental interventions.
-    - tracked_processes: process usage tracking (today and all-time).
-    - enforcement_rules: parental restrictions, process blacklists, daily limits.
+    Initializes database schema with additive migrations:
+    - parent_auth: Cryptographic Master PIN and Password storage
+    - user_state: Current allowed study balance, lock state, active window
+    - time_logs: Transaction audit logs
+    - tracked_processes: Real-time application tracking
+    - enforcement_rules: Legacy rules
+    - app_policies: Granular time budgets, hard blocks & curfews
+    - parent_alerts: Incident ledger (unauthorized attempts, micro-sleeps)
+    - daily_focus_metrics: 24h timeline and daily analytics
     """
     target_path = db_path or DEFAULT_DB_PATH
     if target_path in _initialized_dbs and os.path.exists(target_path):
@@ -72,7 +103,19 @@ def init_db(db_path: Optional[str] = None) -> None:
     with get_db(target_path) as conn:
         cursor = conn.cursor()
 
-        # 1. user_state table
+        # 1. parent_auth Table (Feature 1.1)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS parent_auth (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                password_hash TEXT,
+                salt TEXT NOT NULL,
+                pin_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_login TEXT
+            );
+        """)
+
+        # 2. user_state Table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_state (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -85,37 +128,28 @@ def init_db(db_path: Optional[str] = None) -> None:
             );
         """)
 
-        # Add missing columns if upgrading an existing older DB
+        # Add missing columns if upgrading an older DB
         cursor.execute("PRAGMA table_info(user_state);")
         cols = {row["name"] for row in cursor.fetchall()}
-        if "daily_limit_minutes" not in cols:
-            try:
-                cursor.execute("ALTER TABLE user_state ADD COLUMN daily_limit_minutes INTEGER NOT NULL DEFAULT 120;")
-            except Exception:
-                pass
-        if "is_blocked" not in cols:
-            try:
-                cursor.execute("ALTER TABLE user_state ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0;")
-            except Exception:
-                pass
-        if "current_process" not in cols:
-            try:
-                cursor.execute("ALTER TABLE user_state ADD COLUMN current_process TEXT DEFAULT '';")
-            except Exception:
-                pass
-        if "current_window" not in cols:
-            try:
-                cursor.execute("ALTER TABLE user_state ADD COLUMN current_window TEXT DEFAULT '';")
-            except Exception:
-                pass
+        for col_name, col_type in [
+            ("daily_limit_minutes", "INTEGER NOT NULL DEFAULT 120"),
+            ("is_blocked", "INTEGER NOT NULL DEFAULT 0"),
+            ("current_process", "TEXT DEFAULT ''"),
+            ("current_window", "TEXT DEFAULT ''")
+        ]:
+            if col_name not in cols:
+                try:
+                    cursor.execute(f"ALTER TABLE user_state ADD COLUMN {col_name} {col_type};")
+                except Exception:
+                    pass
 
-        # Insert default row if table is empty
+        # Seed initial row
         cursor.execute("""
             INSERT OR IGNORE INTO user_state (id, current_balance, daily_limit_minutes, is_blocked, current_process, current_window, last_updated)
             VALUES (1, 0, 120, 0, '', '', ?)
         """, (datetime.now().isoformat(),))
 
-        # 2. time_logs table
+        # 3. time_logs Table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS time_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,7 +160,7 @@ def init_db(db_path: Optional[str] = None) -> None:
             );
         """)
 
-        # 3. tracked_processes table
+        # 4. tracked_processes Table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tracked_processes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,7 +175,7 @@ def init_db(db_path: Optional[str] = None) -> None:
             );
         """)
 
-        # 4. enforcement_rules table
+        # 5. enforcement_rules Table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS enforcement_rules (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -155,26 +189,162 @@ def init_db(db_path: Optional[str] = None) -> None:
             );
         """)
 
-        # Seed initial standard rules if empty
+        # Seed default enforcement rules
         cursor.execute("SELECT COUNT(*) as cnt FROM enforcement_rules;")
         if cursor.fetchone()["cnt"] == 0:
-            now_iso = datetime.now().isoformat()
             default_rules = [
-                ("discord.exe", "Discord", 60, 0, "terminate", "Social & Chat", now_iso),
-                ("steam.exe", "Steam", 60, 0, "terminate", "Gaming", now_iso),
-                ("robloxplayerbeta.exe", "Roblox", 45, 0, "terminate", "Gaming", now_iso),
-                ("minecraft.exe", "Minecraft", 45, 0, "terminate", "Gaming", now_iso),
-                ("epicgameslauncher.exe", "Epic Games", 30, 0, "terminate", "Gaming", now_iso),
-                ("tiktok.exe", "TikTok App", 0, 1, "terminate", "Social & Video", now_iso),
+                ("robloxplayerbeta.exe", "Roblox", 0, 1, "terminate", "Gaming"),
+                ("minecraft.exe", "Minecraft", 45, 0, "terminate", "Gaming"),
+                ("discord.exe", "Discord", 60, 0, "terminate", "Social"),
+                ("steam.exe", "Steam", 30, 0, "terminate", "Gaming"),
+                ("spotify.exe", "Spotify", 120, 0, "terminate", "Media"),
             ]
+            now_str = datetime.now().isoformat()
             cursor.executemany("""
                 INSERT OR IGNORE INTO enforcement_rules
                 (process_name, display_name, time_limit_minutes, is_blocked, action, category, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?);
-            """, default_rules)
+                VALUES (?, ?, ?, ?, 'terminate', ?, ?);
+            """, [(r[0], r[1], r[2], r[3], r[5], now_str) for r in default_rules])
+
+        # 6. app_policies Table (Feature 2.1)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS app_policies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_name TEXT UNIQUE NOT NULL,
+                category TEXT NOT NULL DEFAULT 'GAMING',
+                policy_type TEXT NOT NULL DEFAULT 'DAILY_QUOTA',
+                daily_quota_seconds INTEGER DEFAULT 0,
+                used_today_seconds INTEGER DEFAULT 0,
+                curfew_start TEXT DEFAULT '22:00',
+                curfew_end TEXT DEFAULT '06:00',
+                is_active INTEGER DEFAULT 1
+            );
+        """)
+
+        # Seed default app policies
+        cursor.execute("SELECT COUNT(*) as cnt FROM app_policies;")
+        if cursor.fetchone()["cnt"] == 0:
+            default_policies = [
+                ("youtube.com", "VIDEO", "DAILY_QUOTA", 1800, 0, "21:00", "06:00", 1),
+                ("discord.exe", "SOCIAL", "DAILY_QUOTA", 2700, 0, "21:30", "06:00", 1),
+                ("robloxplayerbeta.exe", "GAMING", "HARD_BLOCK", 0, 0, "00:00", "23:59", 1),
+                ("minecraft.exe", "GAMING", "DAILY_QUOTA", 2700, 0, "20:00", "07:00", 1),
+                ("tiktok.com", "SOCIAL", "HARD_BLOCK", 0, 0, "00:00", "23:59", 1),
+                ("steam.exe", "GAMING", "SCHEDULED_CURFEW", 3600, 0, "20:30", "07:00", 1),
+            ]
+            cursor.executemany("""
+                INSERT OR IGNORE INTO app_policies
+                (target_name, category, policy_type, daily_quota_seconds, used_today_seconds, curfew_start, curfew_end, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """, default_policies)
+
+        # 7. parent_alerts Table (Feature 2.1 & 2.3)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS parent_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                target_app TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                severity TEXT NOT NULL DEFAULT 'WARNING',
+                details TEXT,
+                acknowledged INTEGER DEFAULT 0
+            );
+        """)
+
+        # 8. daily_focus_metrics Table (Feature 2.1 & 5.3)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS daily_focus_metrics (
+                date TEXT PRIMARY KEY,
+                total_study_seconds INTEGER DEFAULT 0,
+                pure_focus_seconds INTEGER DEFAULT 0,
+                drowsy_seconds INTEGER DEFAULT 0,
+                away_seconds INTEGER DEFAULT 0,
+                distraction_attempts INTEGER DEFAULT 0,
+                focus_quality_score REAL DEFAULT 100.0
+            );
+        """)
+
+        # Seed initial default parent auth (Master PIN: 1323) if none configured
+        cursor.execute("SELECT COUNT(*) as cnt FROM parent_auth WHERE id = 1;")
+        if cursor.fetchone()["cnt"] == 0:
+            salt = secrets.token_bytes(16)
+            pin_hash = _hash_secret("1323", salt)
+            cursor.execute("""
+                INSERT INTO parent_auth (id, salt, pin_hash, created_at)
+                VALUES (1, ?, ?, ?);
+            """, (salt.hex(), pin_hash, datetime.now().isoformat()))
 
         conn.commit()
     _initialized_dbs.add(target_path)
+
+
+# ==============================================================================
+# CRYPTOGRAPHIC PARENT AUTHENTICATION (FEATURE 1.1)
+# ==============================================================================
+
+def setup_parent_credentials(
+    pin: str,
+    password: Optional[str] = None,
+    db_path: Optional[str] = None
+) -> bool:
+    """Sets or updates the Master PIN and optional password using PBKDF2-HMAC-SHA256."""
+    init_db(db_path)
+    clean_pin = pin.strip()
+    if not clean_pin or len(clean_pin) < 4:
+        raise ValueError("Master PIN must be at least 4 digits.")
+
+    salt = secrets.token_bytes(16)
+    pin_hash = _hash_secret(clean_pin, salt)
+    pwd_hash = _hash_secret(password.strip(), salt) if password else None
+    now_iso = datetime.now().isoformat()
+
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO parent_auth (id, password_hash, salt, pin_hash, created_at, last_login)
+            VALUES (1, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                password_hash = excluded.password_hash,
+                salt = excluded.salt,
+                pin_hash = excluded.pin_hash,
+                last_login = excluded.last_login;
+        """, (pwd_hash, salt.hex(), pin_hash, now_iso, now_iso))
+        conn.commit()
+        return True
+
+
+def verify_parent_pin(pin: str, db_path: Optional[str] = None) -> bool:
+    """Verifies the supplied PIN against stored PBKDF2-HMAC-SHA256 hash."""
+    init_db(db_path)
+    clean_pin = pin.strip()
+    if not clean_pin:
+        return False
+
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT salt, pin_hash FROM parent_auth WHERE id = 1;")
+        row = cursor.fetchone()
+        if not row:
+            return clean_pin == "1323"  # Default fallback if uninitialized
+
+        salt = bytes.fromhex(row["salt"])
+        expected_hash = row["pin_hash"]
+        candidate_hash = _hash_secret(clean_pin, salt)
+
+        if secrets.compare_digest(candidate_hash, expected_hash):
+            cursor.execute("UPDATE parent_auth SET last_login = ? WHERE id = 1;", (datetime.now().isoformat(),))
+            conn.commit()
+            return True
+        return False
+
+
+def is_parent_configured(db_path: Optional[str] = None) -> bool:
+    """Checks if parent credentials have been initialized."""
+    init_db(db_path)
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM parent_auth WHERE id = 1;")
+        return cursor.fetchone() is not None
 
 
 # ==============================================================================
@@ -182,7 +352,6 @@ def init_db(db_path: Optional[str] = None) -> None:
 # ==============================================================================
 
 def get_current_balance(db_path: Optional[str] = None) -> int:
-    """Retrieves current accumulated study/screen time balance (in seconds)."""
     init_db(db_path)
     with get_db(db_path) as conn:
         cursor = conn.cursor()
@@ -197,7 +366,6 @@ def update_balance(
     clamp_min: Optional[int] = 0,
     db_path: Optional[str] = None
 ) -> int:
-    """Updates the balance by delta, logs to time_logs, and returns new balance."""
     init_db(db_path)
     now_iso = datetime.now().isoformat()
     with get_db(db_path) as conn:
@@ -209,9 +377,6 @@ def update_balance(
         new_balance = current_balance + delta
         if clamp_min is not None and new_balance < clamp_min:
             new_balance = clamp_min
-
-        # If balance reaches 0, auto-flag is_blocked if exhausted
-        is_blocked_flag = 1 if new_balance <= 0 and current_balance > 0 else 0
 
         cursor.execute("""
             UPDATE user_state
@@ -229,7 +394,6 @@ def update_balance(
 
 
 def reset_balance(new_balance: int = 0, db_path: Optional[str] = None) -> int:
-    """Resets the balance to an absolute number."""
     init_db(db_path)
     now_iso = datetime.now().isoformat()
     with get_db(db_path) as conn:
@@ -248,7 +412,6 @@ def reset_balance(new_balance: int = 0, db_path: Optional[str] = None) -> int:
 
 
 def get_child_state(db_path: Optional[str] = None) -> Dict[str, Any]:
-    """Retrieves full child system state for Desktop App and Web Dashboard."""
     init_db(db_path)
     with get_db(db_path) as conn:
         cursor = conn.cursor()
@@ -259,14 +422,17 @@ def get_child_state(db_path: Optional[str] = None) -> Dict[str, Any]:
         """)
         row = cursor.fetchone()
         if row:
-            return dict(row)
+            res = dict(row)
+            res["current_role"] = get_current_role()
+            return res
         return {
             "current_balance": 0,
             "daily_limit_minutes": 120,
             "is_blocked": 0,
             "current_process": "",
             "current_window": "",
-            "last_updated": datetime.now().isoformat()
+            "last_updated": datetime.now().isoformat(),
+            "current_role": get_current_role()
         }
 
 
@@ -276,7 +442,6 @@ def update_child_state(
     is_blocked: Optional[int] = None,
     db_path: Optional[str] = None
 ) -> None:
-    """Updates background runtime status in user_state."""
     init_db(db_path)
     updates = ["last_updated = ?"]
     params: List[Any] = [datetime.now().isoformat()]
@@ -301,7 +466,6 @@ def update_child_state(
 
 
 def set_blocked_status(is_blocked: bool, db_path: Optional[str] = None) -> None:
-    """Explicitly sets or clears the system-wide blocked status."""
     init_db(db_path)
     with get_db(db_path) as conn:
         cursor = conn.cursor()
@@ -314,7 +478,7 @@ def set_blocked_status(is_blocked: bool, db_path: Optional[str] = None) -> None:
 
 
 # ==============================================================================
-# PROCESS TRACKING OPERATIONS
+# PROCESS TRACKING & POLICIES (FEATURE 2.1)
 # ==============================================================================
 
 def record_process_usage(
@@ -324,10 +488,6 @@ def record_process_usage(
     category: Optional[str] = None,
     db_path: Optional[str] = None
 ) -> Dict[str, Any]:
-    """
-    Records elapsed time for a tracked application.
-    Automatically resets today_time_seconds when crossing into a new day.
-    """
     init_db(db_path)
     process_name = process_name.strip().lower()
     today_str = date.today().isoformat()
@@ -348,13 +508,8 @@ def record_process_usage(
             today_sec = delta_seconds
             total_sec = delta_seconds
         else:
-            # Check if last active was a previous day
             last_date = row["last_active_date"]
-            if last_date != today_str:
-                today_sec = delta_seconds
-            else:
-                today_sec = row["today_time_seconds"] + delta_seconds
-
+            today_sec = delta_seconds if last_date != today_str else (row["today_time_seconds"] + delta_seconds)
             total_sec = row["total_time_seconds"] + delta_seconds
             cat = category or row["category"] or _infer_category(process_name, window_title)
 
@@ -370,7 +525,13 @@ def record_process_usage(
                 WHERE process_name = ?;
             """, (window_title, total_sec, today_sec, today_str, now_iso, cat, process_name))
 
-        # Reset active status of other processes
+        # Also increment used_today_seconds in app_policies if matching policy exists
+        cursor.execute("""
+            UPDATE app_policies
+            SET used_today_seconds = used_today_seconds + ?
+            WHERE target_name = ? OR target_name = ?;
+        """, (delta_seconds, process_name, f"{process_name}.exe"))
+
         cursor.execute("UPDATE tracked_processes SET is_active = 0 WHERE process_name != ?;", (process_name,))
         conn.commit()
 
@@ -383,17 +544,18 @@ def record_process_usage(
 
 
 def get_tracked_processes(limit: int = 100, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Returns list of tracked processes sorted by today's usage descending."""
     init_db(db_path)
     with get_db(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT p.*,
+                   COALESCE(pol.daily_quota_seconds, r.time_limit_minutes * 60, 0) as quota_seconds,
+                   COALESCE(pol.policy_type, CASE WHEN r.is_blocked = 1 THEN 'HARD_BLOCK' ELSE 'NONE' END) as effective_policy,
                    COALESCE(r.time_limit_minutes, 0) as time_limit_minutes,
-                   COALESCE(r.is_blocked, 0) as rule_is_blocked,
-                   COALESCE(r.action, 'none') as rule_action
+                   COALESCE(r.is_blocked, 0) as rule_is_blocked
             FROM tracked_processes p
             LEFT JOIN enforcement_rules r ON p.process_name = r.process_name
+            LEFT JOIN app_policies pol ON (p.process_name = pol.target_name OR p.process_name || '.exe' = pol.target_name)
             ORDER BY p.today_time_seconds DESC, p.last_seen DESC
             LIMIT ?;
         """, (limit,))
@@ -401,11 +563,212 @@ def get_tracked_processes(limit: int = 100, db_path: Optional[str] = None) -> Li
 
 
 # ==============================================================================
-# ENFORCEMENT RULES OPERATIONS
+# POLICY ENGINE CRUD (FEATURE 2.1)
+# ==============================================================================
+
+def get_app_policies(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    init_db(db_path)
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM app_policies ORDER BY is_active DESC, target_name ASC;")
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def set_app_policy(
+    target_name: str,
+    category: str = "GAMING",
+    policy_type: str = "DAILY_QUOTA",
+    daily_quota_seconds: int = 1800,
+    curfew_start: Optional[str] = None,
+    curfew_end: Optional[str] = None,
+    is_active: int = 1,
+    db_path: Optional[str] = None
+) -> None:
+    init_db(db_path)
+    t_name = target_name.strip().lower()
+    c_start = (curfew_start or "").strip()
+    c_end = (curfew_end or "").strip()
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO app_policies
+            (target_name, category, policy_type, daily_quota_seconds, curfew_start, curfew_end, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(target_name) DO UPDATE SET
+                category = excluded.category,
+                policy_type = excluded.policy_type,
+                daily_quota_seconds = excluded.daily_quota_seconds,
+                curfew_start = excluded.curfew_start,
+                curfew_end = excluded.curfew_end,
+                is_active = excluded.is_active;
+        """, (t_name, category, policy_type, daily_quota_seconds, c_start, c_end, is_active))
+
+        # Synchronize with legacy enforcement_rules for full backward compatibility
+        is_blocked = 1 if policy_type == "HARD_BLOCK" else 0
+        limit_min = max(0, daily_quota_seconds // 60)
+        cursor.execute("""
+            INSERT INTO enforcement_rules
+            (process_name, display_name, time_limit_minutes, is_blocked, action, category, created_at)
+            VALUES (?, ?, ?, ?, 'terminate', ?, ?)
+            ON CONFLICT(process_name) DO UPDATE SET
+                is_blocked = excluded.is_blocked,
+                time_limit_minutes = excluded.time_limit_minutes,
+                category = excluded.category;
+        """, (t_name, t_name.replace(".exe", "").capitalize(), limit_min, is_blocked, category, datetime.now().isoformat()))
+
+        conn.commit()
+
+
+def delete_app_policy(target_name: str, db_path: Optional[str] = None) -> bool:
+    init_db(db_path)
+    t_name = target_name.strip().lower()
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM app_policies WHERE target_name = ?;", (t_name,))
+        cursor.execute("DELETE FROM enforcement_rules WHERE process_name = ?;", (t_name,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+# ==============================================================================
+# PARENT ALERTS & NOTIFICATIONS (FEATURE 2.3)
+# ==============================================================================
+
+def dispatch_parent_alert(
+    target_app: str,
+    event_type: str,
+    severity: str = "WARNING",
+    details: str = "",
+    db_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """Records an incident alert for the parent dashboard."""
+    init_db(db_path)
+    now_iso = datetime.now().isoformat()
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO parent_alerts (timestamp, target_app, event_type, severity, details, acknowledged)
+            VALUES (?, ?, ?, ?, ?, 0);
+        """, (now_iso, target_app, event_type, severity, details))
+        alert_id = cursor.lastrowid
+        conn.commit()
+
+        # Audio notification on parent desktop
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBeep(0x00000030)  # MB_ICONEXCLAMATION
+            except Exception:
+                pass
+
+        return {
+            "id": alert_id,
+            "timestamp": now_iso,
+            "target_app": target_app,
+            "event_type": event_type,
+            "severity": severity,
+            "details": details
+        }
+
+
+def get_parent_alerts(
+    limit: int = 50,
+    unacknowledged_only: bool = False,
+    db_path: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    init_db(db_path)
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        if unacknowledged_only:
+            cursor.execute("SELECT * FROM parent_alerts WHERE acknowledged = 0 ORDER BY id DESC LIMIT ?;", (limit,))
+        else:
+            cursor.execute("SELECT * FROM parent_alerts ORDER BY id DESC LIMIT ?;", (limit,))
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def acknowledge_parent_alert(alert_id: int, db_path: Optional[str] = None) -> bool:
+    init_db(db_path)
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE parent_alerts SET acknowledged = 1 WHERE id = ?;", (alert_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+# ==============================================================================
+# DAILY FOCUS METRICS & 24H TIMELINE (FEATURE 2.1 & 5.3)
+# ==============================================================================
+
+def update_daily_focus_metrics(
+    study_seconds: int = 0,
+    pure_focus_seconds: int = 0,
+    drowsy_seconds: int = 0,
+    away_seconds: int = 0,
+    distraction_attempt: bool = False,
+    db_path: Optional[str] = None
+) -> Dict[str, Any]:
+    init_db(db_path)
+    today_str = date.today().isoformat()
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM daily_focus_metrics WHERE date = ?;", (today_str,))
+        row = cursor.fetchone()
+
+        d_attempts = 1 if distraction_attempt else 0
+        if row is None:
+            total_sec = study_seconds
+            focus_sec = pure_focus_seconds
+            drow_sec = drowsy_seconds
+            away_sec = away_seconds
+            attempts = d_attempts
+        else:
+            total_sec = row["total_study_seconds"] + study_seconds
+            focus_sec = row["pure_focus_seconds"] + pure_focus_seconds
+            drow_sec = row["drowsy_seconds"] + drowsy_seconds
+            away_sec = row["away_seconds"] + away_seconds
+            attempts = row["distraction_attempts"] + d_attempts
+
+        denom = max(1, total_sec - away_sec)
+        score = min(100.0, max(0.0, round((focus_sec / denom) * 100.0, 1)))
+
+        cursor.execute("""
+            INSERT INTO daily_focus_metrics
+            (date, total_study_seconds, pure_focus_seconds, drowsy_seconds, away_seconds, distraction_attempts, focus_quality_score)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                total_study_seconds = excluded.total_study_seconds,
+                pure_focus_seconds = excluded.pure_focus_seconds,
+                drowsy_seconds = excluded.drowsy_seconds,
+                away_seconds = excluded.away_seconds,
+                distraction_attempts = excluded.distraction_attempts,
+                focus_quality_score = excluded.focus_quality_score;
+        """, (today_str, total_sec, focus_sec, drow_sec, away_sec, attempts, score))
+        conn.commit()
+
+        return {
+            "date": today_str,
+            "total_study_seconds": total_sec,
+            "pure_focus_seconds": focus_sec,
+            "drowsy_seconds": drow_sec,
+            "away_seconds": away_sec,
+            "distraction_attempts": attempts,
+            "focus_quality_score": score
+        }
+
+
+def get_daily_focus_metrics(limit: int = 7, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    init_db(db_path)
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM daily_focus_metrics ORDER BY date DESC LIMIT ?;", (limit,))
+        return [dict(row) for row in cursor.fetchall()]
+
+
+# ==============================================================================
+# LEGACY ENFORCEMENT RULES (BACKWARD COMPATIBILITY)
 # ==============================================================================
 
 def get_enforcement_rules(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Retrieves all active parental enforcement rules."""
     init_db(db_path)
     with get_db(db_path) as conn:
         cursor = conn.cursor()
@@ -422,75 +785,74 @@ def set_enforcement_rule(
     category: str = "General",
     db_path: Optional[str] = None
 ) -> None:
-    """Inserts or updates an enforcement rule for a process."""
-    init_db(db_path)
-    p_name = process_name.strip().lower()
-    disp = display_name or p_name.replace(".exe", "").capitalize()
-    now_iso = datetime.now().isoformat()
-
-    with get_db(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO enforcement_rules
-            (process_name, display_name, time_limit_minutes, is_blocked, action, category, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(process_name) DO UPDATE SET
-                display_name = excluded.display_name,
-                time_limit_minutes = excluded.time_limit_minutes,
-                is_blocked = excluded.is_blocked,
-                action = excluded.action,
-                category = excluded.category;
-        """, (p_name, disp, time_limit_minutes, is_blocked, action, category, now_iso))
-        conn.commit()
+    set_app_policy(
+        target_name=process_name,
+        category=category,
+        policy_type="HARD_BLOCK" if is_blocked else ("DAILY_QUOTA" if time_limit_minutes > 0 else "NONE"),
+        daily_quota_seconds=time_limit_minutes * 60,
+        curfew_start="",
+        curfew_end="",
+        is_active=1,
+        db_path=db_path
+    )
 
 
 def delete_enforcement_rule(process_name: str, db_path: Optional[str] = None) -> bool:
-    """Deletes an enforcement rule by process name."""
-    init_db(db_path)
-    p_name = process_name.strip().lower()
-    with get_db(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM enforcement_rules WHERE process_name = ?;", (p_name,))
-        conn.commit()
-        return cursor.rowcount > 0
+    return delete_app_policy(process_name, db_path=db_path)
 
 
 def check_process_restriction(process_name: str, db_path: Optional[str] = None) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
     """
-    Checks if a process is currently restricted.
-    Returns: (is_restricted, reason_string, rule_dict)
+    Evaluates policy rules for an application:
+    1. HARD_BLOCK
+    2. Curfew Window
+    3. Daily Quota Exceeded
     """
     init_db(db_path)
     p_name = process_name.strip().lower()
+
     with get_db(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM enforcement_rules WHERE process_name = ?;", (p_name,))
-        rule = cursor.fetchone()
-        if not rule:
-            return False, "No rule", None
+        cursor.execute("""
+            SELECT * FROM app_policies
+            WHERE target_name = ? OR target_name = ? OR ? LIKE ('%' || target_name || '%');
+        """, (p_name, f"{p_name}.exe", p_name))
+        policy = cursor.fetchone()
 
-        rule_dict = dict(rule)
+        if not policy:
+            return False, "Allowed", None
 
-        # 1. Direct explicit block
-        if rule_dict["is_blocked"] == 1:
-            return True, f"Application '{rule_dict['display_name']}' is permanently blocked by parental control.", rule_dict
+        p_dict = dict(policy)
+        if not p_dict.get("is_active", 1):
+            return False, "Policy inactive", p_dict
 
-        # 2. Daily time limit check
-        cursor.execute("SELECT today_time_seconds, last_active_date FROM tracked_processes WHERE process_name = ?;", (p_name,))
-        p_row = cursor.fetchone()
-        if p_row:
-            today_str = date.today().isoformat()
-            if p_row["last_active_date"] == today_str:
-                used_min = p_row["today_time_seconds"] / 60.0
-                limit_min = rule_dict["time_limit_minutes"]
-                if limit_min > 0 and used_min >= limit_min:
-                    return True, f"Time limit exceeded ({used_min:.1f}m / {limit_min}m allowed today).", rule_dict
+        # 1. Hard Block
+        if p_dict["policy_type"] == "HARD_BLOCK":
+            return True, f"Application '{p_name}' is permanently blocked by parental control.", p_dict
 
-        return False, "Allowed", rule_dict
+        # 2. Curfew Window Check
+        curfew_start = (p_dict.get("curfew_start") or "").strip()
+        curfew_end = (p_dict.get("curfew_end") or "").strip()
+        if curfew_start and curfew_end:
+            now_time = datetime.now().strftime("%H:%M")
+            if curfew_start <= curfew_end:
+                in_curfew = (curfew_start <= now_time <= curfew_end)
+            else:  # Overnight curfew e.g. 21:00 to 06:00
+                in_curfew = (now_time >= curfew_start or now_time <= curfew_end)
+
+            if in_curfew:
+                return True, f"Curfew active ({curfew_start} - {curfew_end}).", p_dict
+
+        # 3. Daily Quota Check
+        quota = p_dict.get("daily_quota_seconds", 0)
+        used = p_dict.get("used_today_seconds", 0)
+        if quota > 0 and used >= quota:
+            return True, f"Time limit exceeded ({used // 60}m / {quota // 60}m allowed).", p_dict
+
+        return False, "Allowed", p_dict
 
 
 def get_recent_logs(limit: int = 10, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Retrieves recent balance and enforcement logs."""
     init_db(db_path)
     with get_db(db_path) as conn:
         cursor = conn.cursor()
@@ -504,37 +866,38 @@ def get_recent_logs(limit: int = 10, db_path: Optional[str] = None) -> List[Dict
 
 
 def _infer_category(process_name: str, window_title: str) -> str:
-    """Helper to categorize common Windows applications."""
     p = process_name.lower()
     t = window_title.lower()
 
     games = ["roblox", "minecraft", "steam", "epicgames", "riot", "valorant", "fortnite", "genshin", "game"]
     if any(g in p or g in t for g in games):
-        return "Gaming"
+        return "GAMING"
 
     social = ["discord", "tiktok", "instagram", "whatsapp", "telegram", "messenger", "twitter", "reddit"]
     if any(s in p or s in t for s in social):
-        return "Social & Chat"
+        return "SOCIAL"
 
     video = ["netflix", "youtube", "twitch", "vlc", "spotify", "hulu", "disney"]
     if any(v in p or v in t for v in video):
-        return "Entertainment"
+        return "VIDEO"
 
     study = ["code", "pycharm", "cursor", "visual studio", "notepad", "word", "excel", "powerpnt", "canvas", "classroom"]
     if any(st in p or st in t for st in study):
-        return "Educational / Productive"
+        return "EDUCATIONAL"
 
     browsers = ["chrome", "msedge", "firefox", "brave", "opera"]
     if any(b in p for b in browsers):
-        return "Web Browser"
+        return "BROWSER"
 
-    return "General"
+    return "GENERAL"
 
 
 if __name__ == "__main__":
-    print("[db_manager] Initializing unified database...")
+    print("[db_manager] Initializing comprehensive enterprise database...")
     init_db()
-    current = get_current_balance()
-    print(f"[db_manager] Current Balance: {current} seconds")
-    rules = get_enforcement_rules()
-    print(f"[db_manager] Active Rules Loaded: {len(rules)}")
+    configured = is_parent_configured()
+    print(f"[db_manager] Parent Auth Configured: {configured}")
+    verified = verify_parent_pin("1323")
+    print(f"[db_manager] Verified Default Master PIN '1323': {verified}")
+    policies = get_app_policies()
+    print(f"[db_manager] Active Policies: {len(policies)}")

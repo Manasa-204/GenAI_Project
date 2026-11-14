@@ -24,6 +24,7 @@ from tkinter import ttk
 from typing import Optional, Dict, Any
 
 import db_manager
+import enforcement
 
 
 class ChildDesktopApp:
@@ -46,9 +47,111 @@ class ChildDesktopApp:
         self.root.minsize(380, 480)
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", self.opacity_val.get())
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close_requested)
 
         self._build_expanded_ui()
         self._refresh_from_db()
+
+    def _on_close_requested(self):
+        """
+        Anti-Tamper Exit Interception (Feature 6.1):
+        Prevents student from closing the focus monitor without entering Master Parent PIN (default 1323).
+        """
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Parent Authentication Required")
+        dialog.geometry("340x220")
+        dialog.resizable(False, False)
+        dialog.configure(bg="#0f172a")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        try:
+            rx = self.root.winfo_x()
+            ry = self.root.winfo_y()
+            dialog.geometry(f"+{rx + 40}+{ry + 80}")
+        except Exception:
+            pass
+
+        icon_lbl = tk.Label(dialog, text="🔒 Parental Security Lock", font=("Segoe UI", 11, "bold"), fg="#f8fafc", bg="#0f172a")
+        icon_lbl.pack(pady=(16, 4))
+
+        sub_lbl = tk.Label(
+            dialog,
+            text="Enter Master Parent PIN to exit monitor.\nUnauthorized attempts are logged.",
+            font=("Segoe UI", 8),
+            fg="#94a3b8",
+            bg="#0f172a",
+            justify=tk.CENTER
+        )
+        sub_lbl.pack(pady=(0, 10))
+
+        pin_entry = tk.Entry(
+            dialog,
+            show="*",
+            font=("Consolas", 16, "bold"),
+            justify="center",
+            width=10,
+            bg="#1e293b",
+            fg="#ffffff",
+            insertbackground="#ffffff",
+            relief=tk.FLAT
+        )
+        pin_entry.pack(pady=4)
+        pin_entry.focus_set()
+
+        err_lbl = tk.Label(dialog, text="", font=("Segoe UI", 8, "bold"), fg="#ef4444", bg="#0f172a")
+        err_lbl.pack(pady=2)
+
+        def verify_and_exit():
+            entered = pin_entry.get().strip()
+            if db_manager.verify_parent_pin(entered, db_path=self.db_path):
+                enforcement.unblock_distractions()
+                dialog.destroy()
+                self.root.destroy()
+                sys.exit(0)
+            else:
+                db_manager.dispatch_parent_alert(
+                    target_app="desktop_app.py",
+                    event_type="TAMPER_ATTEMPT",
+                    severity="CRITICAL",
+                    details=f"Unauthorized desktop app exit attempt with invalid PIN: '{entered}'",
+                    db_path=self.db_path
+                )
+                err_lbl.config(text="Incorrect PIN. Exit denied.")
+                pin_entry.delete(0, tk.END)
+
+        pin_entry.bind("<Return>", lambda e: verify_and_exit())
+
+        btn_box = tk.Frame(dialog, bg="#0f172a")
+        btn_box.pack(pady=(8, 12))
+
+        cancel_btn = tk.Button(
+            btn_box,
+            text="Cancel",
+            command=dialog.destroy,
+            font=("Segoe UI", 8),
+            bg="#334155",
+            fg="#f8fafc",
+            relief=tk.FLAT,
+            padx=12,
+            pady=4,
+            cursor="hand2"
+        )
+        cancel_btn.pack(side=tk.LEFT, padx=6)
+
+        submit_btn = tk.Button(
+            btn_box,
+            text="Unlock & Exit",
+            command=verify_and_exit,
+            font=("Segoe UI", 8, "bold"),
+            bg="#e11d48",
+            fg="#ffffff",
+            relief=tk.FLAT,
+            padx=12,
+            pady=4,
+            cursor="hand2"
+        )
+        submit_btn.pack(side=tk.LEFT, padx=6)
 
     def _build_expanded_ui(self):
         """Constructs the Expanded HUD Mode layout."""

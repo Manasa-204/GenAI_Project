@@ -22,6 +22,7 @@ from typing import Optional
 import db_manager
 import user_tracker
 import enforcement
+import logic_controller
 
 _is_running = True
 _cleaned_up = False
@@ -30,15 +31,11 @@ _cleaned_up = False
 def cleanup_on_exit():
     """Safe exit handler to ensure hosts file and database remain consistent."""
     global _cleaned_up
-    if not _cleaned_up:
-        _cleaned_up = True
-        try:
-            # When stopping the service cleanly, restore domain access if child has balance
-            balance = db_manager.get_current_balance()
-            if balance > 0:
-                enforcement.unblock_distractions()
-        except Exception:
-            pass
+    try:
+        # On exit, always ensure restrictions are lifted so user is never locked out
+        enforcement.unblock_distractions()
+    except Exception:
+        pass
 
 
 atexit.register(cleanup_on_exit)
@@ -55,6 +52,32 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGINT, signal_handler)
 if hasattr(signal, "SIGTERM"):
     signal.signal(signal.SIGTERM, signal_handler)
+
+
+def run_orchestrator_step(
+    db_path: Optional[str] = None,
+    csv_path: Optional[str] = None
+) -> dict:
+    """
+    Backward-compatible single orchestration cycle for integration tests:
+    Evaluates sensory logic cycle (logic_controller.evaluate_cycle),
+    updates balance, and enforces distraction blocking (enforcement.block_distractions/unblock_distractions).
+    """
+    eval_res = logic_controller.evaluate_cycle(db_path=db_path, csv_path=csv_path)
+    new_balance = eval_res.get("new_balance", 0)
+
+    if new_balance <= 0:
+        enforcement.block_distractions()
+        is_blocked = True
+    else:
+        enforcement.unblock_distractions()
+        is_blocked = False
+
+    return {
+        "eval_result": eval_res,
+        "new_balance": new_balance,
+        "is_blocked": is_blocked
+    }
 
 
 def run_orchestrator_cycle(
