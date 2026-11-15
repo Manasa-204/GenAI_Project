@@ -1,0 +1,17 @@
+# ==============================================================================
+# Demon AI - Study Monitor & Dual-Portal Platform Requirements
+# ==============================================================================
+
+# Core Computer Vision & Kinematics
+opencv-python>=4.8.0
+numpy>=1.24.0
+mediapipe>=0.10.0; python_version < "3.13"
+
+# Window Management & Contextual Scraping
+pygetwindow>=0.0.9
+
+# Semantic Classification & HTTP Client
+requests>=2.28.0
+
+# Optional: Windows Executable Packaging
+pyinstaller>=6.0.0

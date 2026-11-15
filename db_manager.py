@@ -17,6 +17,7 @@ import secrets
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any, Tuple
 from contextlib import contextmanager
+import time
 
 DEFAULT_DB_FILE = "study_monitor.db"
 
@@ -261,6 +262,62 @@ def init_db(db_path: Optional[str] = None) -> None:
                 away_seconds INTEGER DEFAULT 0,
                 distraction_attempts INTEGER DEFAULT 0,
                 focus_quality_score REAL DEFAULT 100.0
+            );
+        """)
+
+        # 9. emergency_lockdown table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS emergency_lockdown (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                is_active INTEGER NOT NULL DEFAULT 0,
+                started_at REAL NOT NULL DEFAULT 0.0,
+                duration_seconds INTEGER NOT NULL DEFAULT 0,
+                remaining_seconds INTEGER NOT NULL DEFAULT 0,
+                reason TEXT DEFAULT 'Parental Override',
+                updated_at REAL NOT NULL DEFAULT 0.0
+            );
+        """)
+        cursor.execute("""
+            INSERT OR IGNORE INTO emergency_lockdown (id, is_active, started_at, duration_seconds, remaining_seconds, reason, updated_at)
+            VALUES (1, 0, 0.0, 0, 0, 'None', 0.0)
+        """)
+
+        cursor.execute("PRAGMA table_info(emergency_lockdown);")
+        lockdown_cols = {row["name"] for row in cursor.fetchall()}
+        for col_name, col_type in [
+            ("is_active", "INTEGER NOT NULL DEFAULT 0"),
+            ("started_at", "REAL NOT NULL DEFAULT 0.0"),
+            ("duration_seconds", "INTEGER NOT NULL DEFAULT 0"),
+            ("remaining_seconds", "INTEGER NOT NULL DEFAULT 0"),
+            ("reason", "TEXT DEFAULT 'Parental Override'"),
+            ("updated_at", "REAL NOT NULL DEFAULT 0.0"),
+        ]:
+            if col_name not in lockdown_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE emergency_lockdown ADD COLUMN {col_name} {col_type};")
+                except Exception:
+                    pass
+
+        # 10. timeline_slots table (96 slots per day, one per 15-min segment)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS timeline_slots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                slot_index INTEGER NOT NULL,
+                category TEXT NOT NULL DEFAULT 'OFFLINE',
+                UNIQUE(date, slot_index)
+            );
+        """)
+
+        # 11. app_recent_history table (circular buffer of last 8 apps)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS app_recent_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                process_name TEXT NOT NULL,
+                window_title TEXT DEFAULT '',
+                category TEXT DEFAULT 'General',
+                last_active_timestamp REAL NOT NULL,
+                duration_seconds INTEGER NOT NULL DEFAULT 0
             );
         """)
 
@@ -890,6 +947,233 @@ def _infer_category(process_name: str, window_title: str) -> str:
         return "BROWSER"
 
     return "GENERAL"
+
+
+
+
+# ==============================================================================
+# EMERGENCY LOCKDOWN LIFECYCLE (MODULE 1)
+# ==============================================================================
+
+def start_emergency_lockdown(duration_seconds: int, reason: str = "Parental Override", db_path: Optional[str] = None) -> dict:
+    """Starts a timed emergency lockdown session."""
+    init_db(db_path)
+    now = time.time()
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE emergency_lockdown SET
+                is_active = 1,
+                started_at = ?,
+                duration_seconds = ?,
+                remaining_seconds = ?,
+                reason = ?,
+                updated_at = ?
+            WHERE id = 1;
+        """, (now, duration_seconds, duration_seconds, reason, now))
+        conn.commit()
+    return get_emergency_lockdown_status(db_path=db_path)
+
+
+def stop_emergency_lockdown(db_path: Optional[str] = None) -> dict:
+    """Immediately stops the emergency lockdown."""
+    init_db(db_path)
+    now = time.time()
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE emergency_lockdown SET
+                is_active = 0,
+                remaining_seconds = 0,
+                updated_at = ?
+            WHERE id = 1;
+        """, (now,))
+        conn.commit()
+    return get_emergency_lockdown_status(db_path=db_path)
+
+
+def edit_emergency_lockdown(new_duration_seconds: int, db_path: Optional[str] = None) -> dict:
+    """Adjusts the total duration of an active lockdown (recalculates remaining)."""
+    init_db(db_path)
+    now = time.time()
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM emergency_lockdown WHERE id = 1;")
+        row = cursor.fetchone()
+        if row and row["is_active"]:
+            elapsed = max(0, now - row["started_at"])
+            new_remaining = max(0, int(new_duration_seconds - elapsed))
+            cursor.execute("""
+                UPDATE emergency_lockdown SET
+                    duration_seconds = ?,
+                    remaining_seconds = ?,
+                    updated_at = ?
+                WHERE id = 1;
+            """, (new_duration_seconds, new_remaining, now))
+        else:
+            cursor.execute("""
+                UPDATE emergency_lockdown SET
+                    duration_seconds = ?,
+                    remaining_seconds = ?,
+                    updated_at = ?
+                WHERE id = 1;
+            """, (new_duration_seconds, new_duration_seconds, now))
+        conn.commit()
+    return get_emergency_lockdown_status(db_path=db_path)
+
+
+def get_emergency_lockdown_status(db_path: Optional[str] = None) -> dict:
+    """Returns the current lockdown state including computed remaining seconds."""
+    init_db(db_path)
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM emergency_lockdown WHERE id = 1;")
+        row = cursor.fetchone()
+        if not row:
+            return {"is_active": False, "remaining_seconds": 0, "duration_seconds": 0, "reason": ""}
+        d = dict(row)
+        if d.get("is_active"):
+            elapsed = max(0, time.time() - d.get("started_at", 0))
+            d["remaining_seconds"] = max(0, int(d.get("duration_seconds", 0) - elapsed))
+            if d["remaining_seconds"] <= 0:
+                # Auto-expire
+                cursor.execute("UPDATE emergency_lockdown SET is_active = 0, remaining_seconds = 0 WHERE id = 1;")
+                conn.commit()
+                d["is_active"] = 0
+                d["remaining_seconds"] = 0
+        return {
+            "is_active": bool(d.get("is_active", 0)),
+            "started_at": d.get("started_at", 0.0),
+            "duration_seconds": d.get("duration_seconds", 0),
+            "remaining_seconds": d.get("remaining_seconds", 0),
+            "reason": d.get("reason", ""),
+            "updated_at": d.get("updated_at", 0.0)
+        }
+
+
+# ==============================================================================
+# TIMELINE SLOT RECORDING (MODULE 6)
+# ==============================================================================
+
+def record_timeline_slot(category: str, db_path: Optional[str] = None) -> None:
+    """Records the current 15-minute slot category for the 24h timeline."""
+    import time as _time
+    init_db(db_path)
+    now = _time.time()
+    today_str = date.today().isoformat()
+    dt = datetime.now()
+    slot_index = (dt.hour * 60 + dt.minute) // 15  # 0-95
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO timeline_slots (date, slot_index, category)
+            VALUES (?, ?, ?)
+            ON CONFLICT(date, slot_index) DO UPDATE SET category = excluded.category;
+        """, (today_str, slot_index, category))
+        conn.commit()
+
+
+def get_timeline_slots(db_path: Optional[str] = None) -> list:
+    """Returns 96 slots for the current day (00:00-23:59 in 15m segments)."""
+    init_db(db_path)
+    today_str = date.today().isoformat()
+    slot_map = {}
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT slot_index, category FROM timeline_slots WHERE date = ?;", (today_str,))
+        for row in cursor.fetchall():
+            slot_map[row["slot_index"]] = row["category"]
+    return [{"slot": i, "hour": i // 4, "minute": (i % 4) * 15, "category": slot_map.get(i, "OFFLINE")} for i in range(96)]
+
+
+# ==============================================================================
+# APP RECENT HISTORY BUFFER (MODULE 7)
+# ==============================================================================
+
+def push_app_history(process_name: str, window_title: str = "", category: str = "General", duration_seconds: int = 1, db_path: Optional[str] = None) -> None:
+    """Pushes a recently used app into the circular history buffer (max 8 entries)."""
+    init_db(db_path)
+    import time as _time
+    now = _time.time()
+    p = process_name.strip().lower()
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        # Update if already in history
+        cursor.execute("SELECT id FROM app_recent_history WHERE process_name = ?;", (p,))
+        existing = cursor.fetchone()
+        if existing:
+            cursor.execute("""
+                UPDATE app_recent_history SET
+                    window_title = ?, category = ?, last_active_timestamp = ?, duration_seconds = duration_seconds + ?
+                WHERE process_name = ?;
+            """, (window_title, category, now, duration_seconds, p))
+        else:
+            cursor.execute("""
+                INSERT INTO app_recent_history (process_name, window_title, category, last_active_timestamp, duration_seconds)
+                VALUES (?, ?, ?, ?, ?);
+            """, (p, window_title, category, now, duration_seconds))
+            # Enforce max 8 entries: delete oldest beyond 8
+            cursor.execute("""
+                DELETE FROM app_recent_history WHERE id NOT IN (
+                    SELECT id FROM app_recent_history ORDER BY last_active_timestamp DESC LIMIT 8
+                );
+            """)
+        conn.commit()
+
+
+def get_recent_app_history(db_path: Optional[str] = None) -> list:
+    """Returns the last 8 recently used applications, most recent first."""
+    init_db(db_path)
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT process_name, window_title, category, last_active_timestamp, duration_seconds
+            FROM app_recent_history ORDER BY last_active_timestamp DESC LIMIT 8;
+        """)
+        return [dict(row) for row in cursor.fetchall()]
+
+
+# ==============================================================================
+# APP USAGE DISTRIBUTION (MODULE 6)
+# ==============================================================================
+
+def get_app_usage_distribution(db_path: Optional[str] = None) -> dict:
+    """Returns live app usage distribution by category for today."""
+    init_db(db_path)
+    today_str = date.today().isoformat()
+    with get_db(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT category, SUM(today_time_seconds) as total
+            FROM tracked_processes
+            WHERE last_active_date = ?
+            GROUP BY category;
+        """, (today_str,))
+        rows = cursor.fetchall()
+    dist = {"EDUCATIONAL": 0, "GAMING": 0, "SOCIAL": 0, "VIDEO": 0, "BROWSER": 0, "GENERAL": 0}
+    grand_total = 0
+    for row in rows:
+        cat = (row["category"] or "GENERAL").upper()
+        sec = row["total"] or 0
+        grand_total += sec
+        for key in dist:
+            if key in cat:
+                dist[key] += sec
+                break
+        else:
+            dist["GENERAL"] += sec
+    edu_pct = round((dist["EDUCATIONAL"] / max(1, grand_total)) * 100, 1)
+    gaming_pct = round(((dist["GAMING"] + dist["VIDEO"]) / max(1, grand_total)) * 100, 1)
+    social_pct = round((dist["SOCIAL"] / max(1, grand_total)) * 100, 1)
+    other_pct = round(100 - edu_pct - gaming_pct - social_pct, 1)
+    return {
+        "educational_pct": edu_pct,
+        "gaming_pct": gaming_pct,
+        "social_pct": social_pct,
+        "other_pct": max(0, other_pct),
+        "total_seconds": grand_total,
+        "breakdown": dist
+    }
 
 
 if __name__ == "__main__":

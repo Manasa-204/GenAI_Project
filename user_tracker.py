@@ -305,6 +305,11 @@ class WindowsProcessTracker:
         self.last_pid = 0
         self.last_check_time = time.time()
         self._is_win32 = (sys.platform == "win32")
+        from collections import deque
+        self._recent_history: deque = deque(maxlen=8)
+        self._last_foreground_proc: str = ""
+        self._last_foreground_title: str = ""
+        self._last_foreground_time: float = 0.0
 
     def get_foreground_process(self) -> Tuple[int, str, str]:
         if not self._is_win32:
@@ -399,6 +404,28 @@ class WindowsProcessTracker:
                 db_path=self.db_path
             )
 
+            # Update recent history when foreground app changes
+            if proc_name != self._last_foreground_proc:
+                entry = {
+                    "process_name": proc_name,
+                    "window_title": win_title,
+                    "category": usage["category"],
+                    "last_active_timestamp": time.time(),
+                    "duration_seconds": actual_delta
+                }
+                self._recent_history.appendleft(entry)
+                self._last_foreground_proc = proc_name
+                self._last_foreground_title = win_title
+                self._last_foreground_time = time.time()
+                # Also push to db recent history
+                try:
+                    db_manager.push_app_history(
+                        proc_name, win_title, usage["category"], actual_delta,
+                        db_path=self.db_path
+                    )
+                except Exception:
+                    pass
+
             return {
                 "pid": pid,
                 "process_name": proc_name,
@@ -415,6 +442,20 @@ class WindowsProcessTracker:
             "delta": actual_delta,
             "today_seconds": 0,
             "category": "Unknown"
+        }
+
+    def get_recent_history(self) -> list:
+        """Returns up to 8 recently opened/focused applications."""
+        return list(self._recent_history)
+
+    def get_foreground_info(self) -> dict:
+        """Returns the current foreground process info."""
+        pid, proc, title = self.get_foreground_process()
+        return {
+            "pid": pid,
+            "process_name": proc,
+            "window_title": title,
+            "last_seen": self._last_foreground_time
         }
 
 

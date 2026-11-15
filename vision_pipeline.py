@@ -61,6 +61,15 @@ HEAD_MODEL_POINTS_3D = np.array([
 
 POSE_LANDMARK_INDICES = [1, 152, 33, 263, 61, 291]
 
+# ==============================================================================
+# SPATIAL FOCUS REGION (MODULE 3)
+# ==============================================================================
+FOCUS_BOX_X_MIN = 0.20
+FOCUS_BOX_X_MAX = 0.80
+FOCUS_BOX_Y_MIN = 0.15
+FOCUS_BOX_Y_MAX = 0.85
+FOCUS_MIN_FACE_AREA_RATIO = 0.12  # face must occupy >= 12% of frame area
+
 
 # ==============================================================================
 # MEDIAPIPE COMPATIBILITY SHIM (FEATURE 7.1)
@@ -177,6 +186,20 @@ def estimate_head_pose(pose_points, frame_size: Tuple[int, int]) -> Tuple[float,
     return pitch_deg, yaw_deg, roll_deg
 
 
+def is_face_in_focus_region(bbox: dict, frame_shape: tuple) -> bool:
+    """
+    Returns True if the face centroid is inside the normalized focus bounding box
+    AND the face occupies >= FOCUS_MIN_FACE_AREA_RATIO of the frame area.
+    """
+    cx = bbox.get("cx", 0.5)
+    cy = bbox.get("cy", 0.5)
+    face_area_ratio = bbox.get("width", 0.0) * bbox.get("height", 0.0)
+    if face_area_ratio < FOCUS_MIN_FACE_AREA_RATIO:
+        return False
+    return (FOCUS_BOX_X_MIN <= cx <= FOCUS_BOX_X_MAX and
+            FOCUS_BOX_Y_MIN <= cy <= FOCUS_BOX_Y_MAX)
+
+
 _mock_vision_state = None
 _mock_vision_substate = None
 _default_pipeline_instance = None
@@ -252,12 +275,59 @@ class VisionPipeline:
         # Temporal Hysteresis sliding confirmation
         self._state_history = []
 
+        # Rolling temporal kinematics buffer (Module 4)
+        from collections import deque
+        self._kinematic_buffer = deque(maxlen=30)  # 30-frame rolling window
+        self._focus_quality_score = 85.0  # EMA-based continuous score (0-100)
+        self._ema_alpha = 0.15  # EMA smoothing factor
+        self._last_focus_region_check = "IN_REGION"  # Track spatial gate status
+
     def calibrate_baseline(self, open_ear: float, closed_ear: float, note_pitch: float = -22.0):
         """Sets calibrated dynamic thresholds (Feature 7.2)."""
         self.baseline_open_ear = max(0.20, open_ear)
         self.baseline_closed_ear = min(0.18, closed_ear)
         self.ear_threshold = (self.baseline_open_ear + self.baseline_closed_ear) / 2.0
         self.note_taking_pitch_baseline = note_pitch
+
+    def compute_focus_quality_score(self, avg_ear: float, pitch: float, yaw: float, sub_state: str) -> float:
+        """
+        Computes a rolling EMA-based Focus Quality Score (0-100) using:
+        - Gaze/Head alignment score
+        - Eyelid alertness score (EAR)
+        - State classification bonus/penalty
+        Updates self._focus_quality_score in place and returns it.
+        """
+        # Gaze alignment (Pitch ±10°, Yaw ±15° → 1.0, decays outside)
+        pitch_score = max(0.0, 1.0 - abs(pitch) / 25.0)
+        yaw_score = max(0.0, 1.0 - abs(yaw) / 30.0)
+        gaze_score = (pitch_score + yaw_score) / 2.0
+
+        # Eyelid alertness (EAR >= 0.22 → 1.0, decays to 0 at EAR < 0.12)
+        ear_score = max(0.0, min(1.0, (avg_ear - 0.12) / (0.22 - 0.12))) if avg_ear < 0.22 else 1.0
+
+        # State bonus/penalty
+        state_bonus = {
+            "DIRECT_FOCUS": 1.0,
+            "PASSIVE_READING": 0.9,
+            "DESK_NOTE_TAKING": 0.85,
+            "DUAL_MONITOR_FOCUS": 0.80,
+            "LOOKING_AWAY": 0.3,
+            "DROWSY_MICROSLEEP": 0.2,
+            "MOBILE_DISTRACTION": 0.1,
+            "ABANDONED_DESK": 0.0,
+            "ABANDONED": 0.0,
+        }.get(sub_state, 0.6)
+
+        # Weighted composite raw score (0.0 to 1.0)
+        raw_score = gaze_score * 0.35 + ear_score * 0.30 + state_bonus * 0.35
+        target = raw_score * 100.0
+
+        # EMA update
+        self._focus_quality_score = (
+            self._ema_alpha * target + (1.0 - self._ema_alpha) * self._focus_quality_score
+        )
+        self._focus_quality_score = max(0.0, min(100.0, self._focus_quality_score))
+        return round(self._focus_quality_score, 1)
 
     def reset_timers(self):
         self.closed_eye_start_time = None
@@ -421,6 +491,7 @@ class VisionPipeline:
         self.last_state = state
         self.last_substate = sub_state
 
+        self.compute_focus_quality_score(avg_ear, pitch, yaw, sub_state)
         return self._build_result(state, sub_state, balance_delta, avg_ear, pitch, yaw, roll, True, current_time, sleep_duration, away_duration, mobile_duration)
 
     def _build_result(self, state, sub_state, balance_delta, avg_ear, pitch, yaw, roll, face_detected, current_time, sleep_dur=0.0, away_dur=0.0, mobile_dur=0.0):
@@ -439,7 +510,9 @@ class VisionPipeline:
             "looking_away": sub_state in ("LOOKING_AWAY", "ABANDONED_DESK"),
             "sleep_duration": sleep_dur,
             "away_duration": away_dur,
-            "mobile_duration": mobile_dur
+            "mobile_duration": mobile_dur,
+            "focus_quality_score": self._focus_quality_score,
+            "in_focus_region": self._last_focus_region_check == "IN_REGION",
         }
 
     def process_frame(self, frame, current_time=None):
@@ -456,9 +529,17 @@ class VisionPipeline:
         if not results.multi_face_landmarks:
             return self._classify_8_state_matrix(0.0, 0.0, 0.0, 0.0, 0.0, False, current_time)
 
-        primary_lm, _, _ = self.user_tracker.find_primary_user(results.multi_face_landmarks, (h, w))
+        primary_lm, primary_box, _ = self.user_tracker.find_primary_user(results.multi_face_landmarks, (h, w))
         if primary_lm is None:
+            self._last_focus_region_check = "NO_FACE"
             return self._classify_8_state_matrix(0.0, 0.0, 0.0, 0.0, 0.0, False, current_time)
+
+        # MODULE 3: Spatial focus region gate
+        if primary_box and not is_face_in_focus_region(primary_box, (h, w)):
+            self._last_focus_region_check = "PERIPHERAL_FACE_IGNORED"
+            # Return last known state but do not penalize — just hold
+            return self._classify_8_state_matrix(0.0, 0.0, 0.0, 0.0, 0.0, False, current_time)
+        self._last_focus_region_check = "IN_REGION"
 
         return self.process_landmarks(primary_lm, (h, w), current_time=current_time)
 

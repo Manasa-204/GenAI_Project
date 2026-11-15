@@ -102,6 +102,17 @@ KNOWN_DISTRACTION_PROCESSES = {
     "disneyplus.exe",
 }
 
+# NEVER terminate these browser processes - only minimize their windows
+BROWSER_PROCESSES = {
+    "chrome.exe", "googlechrome.exe",
+    "msedge.exe", "microsoftedge.exe",
+    "firefox.exe",
+    "brave.exe",
+    "opera.exe",
+    "vivaldi.exe",
+    "iexplore.exe",
+}
+
 _is_blocked_state = False
 _mock_mode = False
 
@@ -403,6 +414,10 @@ def terminate_process_by_name(process_name: str) -> bool:
     if not p_name:
         return False
 
+    # Never kill browsers - only minimize their windows
+    if p_name in BROWSER_PROCESSES:
+        return False  # Use enforce_active_distraction() for browsers instead
+
     # Prevent accidentally killing critical system processes
     protected = ["explorer.exe", "svchost.exe", "csrss.exe", "winlogon.exe", "services.exe", "taskmgr.exe", "demon.exe"]
     if p_name in protected:
@@ -451,6 +466,44 @@ def terminate_all_running_distractions() -> List[str]:
     return terminated
 
 
+def terminate_or_minimize_distraction(process_name: str, window_title: str = "") -> bool:
+    """
+    Smart enforcement: terminates standalone distraction apps,
+    but only MINIMIZES browser windows showing distraction content.
+    Never kills chrome.exe, msedge.exe, firefox.exe, brave.exe.
+    """
+    p_lower = process_name.strip().lower()
+    if p_lower in BROWSER_PROCESSES:
+        # For browsers: only minimize the offending window, do NOT terminate
+        return enforce_active_distraction(window_title or None)
+    # For standalone apps: terminate only if in known distraction list
+    if p_lower in KNOWN_DISTRACTION_PROCESSES:
+        return terminate_process_by_name(p_lower)
+    return False
+
+
+def get_policy_blocked_domains(db_path: Optional[str] = None) -> List[str]:
+    """
+    Returns only domains explicitly configured as HARD_BLOCK in app_policies.
+    This ensures surgical domain blocking rather than blanket DEFAULT_DISTRACTION_DOMAINS.
+    """
+    try:
+        policies = db_manager.get_app_policies(db_path=db_path)
+        blocked = []
+        for p in policies:
+            if p.get("policy_type") == "HARD_BLOCK" and p.get("is_active", 1):
+                target = p.get("target_name", "").strip().lower()
+                # Only include domain-like targets (containing dots, not .exe files)
+                if "." in target and not target.endswith(".exe"):
+                    blocked.append(target)
+                    # Add www. variant if not already present
+                    if not target.startswith("www."):
+                        blocked.append(f"www.{target}")
+        return blocked if blocked else DEFAULT_DISTRACTION_DOMAINS
+    except Exception:
+        return DEFAULT_DISTRACTION_DOMAINS
+
+
 def enforce_rules(
     current_proc_name: str = "",
     current_pid: int = 0,
@@ -479,18 +532,38 @@ def enforce_rules(
             block_distractions()
             actions_taken.append("OS Distraction Domains Blocked (Zero-Tolerance Lockdown Active)")
 
-        # Proactively terminate all running distraction apps on the machine!
-        terminated_distractions = terminate_all_running_distractions()
+        # Surgical enforcement: only terminate STANDALONE distraction apps, never browsers
+        terminated_distractions = []
+        try:
+            import user_tracker as _ut
+            tracker = _ut.WindowsProcessTracker()
+            running_names = tracker.get_running_process_names()
+            for proc in running_names:
+                p_lower = proc.lower()
+                # NEVER terminate browsers
+                if p_lower in BROWSER_PROCESSES:
+                    continue
+                if p_lower in KNOWN_DISTRACTION_PROCESSES:
+                    if terminate_process_by_name(p_lower):
+                        terminated_distractions.append(p_lower)
+                        try:
+                            ctypes.windll.user32.MessageBeep(0x00000010)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
         for t in terminated_distractions:
             actions_taken.append(f"Blocked & Terminated distraction process: '{t}'")
             db_manager.update_balance(0, reason=f"[ZERO-TOLERANCE] Intercepted and terminated: {t}", db_path=db_path)
 
-        # Also inspect current foreground process
         if current_proc_name:
             curr = current_proc_name.lower()
-            if curr in KNOWN_DISTRACTION_PROCESSES or any(d.replace(".exe", "") in curr for d in KNOWN_DISTRACTION_PROCESSES):
+            if curr not in BROWSER_PROCESSES and curr in KNOWN_DISTRACTION_PROCESSES:
                 terminate_process_by_name(current_proc_name)
                 actions_taken.append(f"Terminated foreground distraction '{current_proc_name}'")
+            elif curr in BROWSER_PROCESSES:
+                # Only minimize, never kill browsers
+                enforce_active_distraction()
 
         # Intercept any distraction browser windows or media
         enforce_active_distraction()
