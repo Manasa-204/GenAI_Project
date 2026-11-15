@@ -69,6 +69,7 @@ KNOWN_DISTRACTION_PROCESSES = {
     "steam.exe",
     "steamwebhelper.exe",
     "epicgameslauncher.exe",
+    "epicgames.exe",
     "epicwebhelper.exe",
     "riotclientservices.exe",
     "valorant.exe",
@@ -184,7 +185,10 @@ def _clean_hosts_content(content: str) -> str:
 
 def is_distraction_blocked(hosts_path: Optional[str] = None) -> bool:
     """Returns whether distractions are currently in the blocked state."""
-    global _is_blocked_state
+    global _is_blocked_state, _mock_mode
+    if _mock_mode:
+        return _is_blocked_state
+
     if hosts_path is not None:
         if os.path.exists(hosts_path):
             try:
@@ -194,13 +198,14 @@ def is_distraction_blocked(hosts_path: Optional[str] = None) -> bool:
                 pass
         return False
 
-    # Also inspect database state
-    try:
-        state = db_manager.get_child_state()
-        if state.get("is_blocked", 0) == 1 or state.get("current_balance", 0) <= 0:
-            return True
-    except Exception:
-        pass
+    target_path = get_default_hosts_path()
+    if os.path.exists(target_path):
+        try:
+            with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
+                if BLOCK_HEADER in f.read():
+                    return True
+        except Exception:
+            pass
 
     return _is_blocked_state
 
@@ -522,8 +527,9 @@ def enforce_rules(
     state = db_manager.get_child_state(db_path=db_path)
     balance = state.get("current_balance", 0)
     is_blocked = state.get("is_blocked", 0)
+    lockdown = db_manager.get_emergency_lockdown_status(db_path=db_path)
 
-    is_lockdown_active = (balance <= 0 or is_blocked == 1)
+    is_lockdown_active = (balance <= 0 or is_blocked == 1 or bool(lockdown.get("is_active", False)))
     actions_taken: List[str] = []
 
     # 1. Distraction Blocking Active (Strict Zero-Tolerance Mode)

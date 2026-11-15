@@ -404,6 +404,11 @@ class WindowsProcessTracker:
                 db_path=self.db_path
             )
 
+            try:
+                db_manager.record_timeline_slot(usage["category"], db_path=self.db_path)
+            except Exception:
+                pass
+
             # Update recent history when foreground app changes
             if proc_name != self._last_foreground_proc:
                 entry = {

@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.0] - 2026-11-15 - 9-Module Full Platform Expansion & Optimization (Branch: `loki`)
+
+### Added
+- **Module 1: Emergency Lockdown Lifecycle Controls**:
+  - Added table `emergency_lockdown` with active status, duration, remaining seconds countdown, and parental reason.
+  - Implemented `start_emergency_lockdown()`, `edit_emergency_lockdown()`, `stop_emergency_lockdown()`, and `get_emergency_lockdown_status()`.
+  - Added REST API routes: `POST /api/lockdown/start`, `POST /api/lockdown/edit`, `POST /api/lockdown/stop`.
+  - Added live countdown banner and quick duration buttons (+15m, +30m, +60m, custom) to the Web Dashboard.
+  - Integrated into `main.py` and `enforcement.py` for automatic restriction unblocking when timer expires.
+- **Module 2: Surgical Enforcement & Zero Browser Killing**:
+  - Implemented `BROWSER_PROCESSES` protection list (`chrome.exe`, `msedge.exe`, `firefox.exe`, `brave.exe`, `opera.exe`, `vivaldi.exe`).
+  - Implemented `terminate_or_minimize_distraction()`: minimizes offending browser windows without killing processes, while forcefully terminating standalone distraction apps.
+- **Module 3: Spatial Focus Region Filtering**:
+  - Added calibrated frustum bounding box (`X_MIN=0.20`, `X_MAX=0.80`, `Y_MIN=0.15`, `Y_MAX=0.85`, face area ratio >= 12%).
+  - Faces outside this region are classified as `PERIPHERAL_FACE_IGNORED` to prevent passerby false alarms.
+  - Rendered spatial focus frustum reticle on Camera HUD stream.
+- **Module 4: Continuous Focus Score EMA & 8-State Posture Matrix**:
+  - Implemented 30-frame kinematics rolling buffer (`KINEMATICS_FRAME_BUFFER`).
+  - Added EMA-based Focus Quality Score (0-100%) in `VisionPipeline.compute_focus_quality_score()`.
+- **Module 5: Semantic Color Streaming**:
+  - Synchronized 3-tier color streaming: Green (>= 75%), Amber (40-74%), Red (< 40%).
+  - Dynamically tinted Camera HUD targeting brackets, reticle, and desktop app widgets.
+- **Module 6: Dynamic 24-Hour Timeline & App Usage Distribution**:
+  - Added table `timeline_slots` (96 15-minute intervals for 24 hours).
+  - Implemented `record_timeline_slot()`, `get_timeline_slots()`, and `get_app_usage_distribution()`.
+  - Added REST APIs: `GET /api/metrics/timeline-24h` and `GET /api/metrics/app-distribution`.
+  - Rendered dynamic horizontal color-coded timeline bar and app usage breakdown bars.
+- **Module 7: 8-Item Recent Application History Buffer**:
+  - Added circular deque and table `app_recent_history` retaining strictly the last 8 foreground applications.
+  - Implemented `push_app_history()` and `get_recent_app_history()`.
+  - Added REST API `GET /api/apps/recent` and rendered responsive 8-item recent apps grid.
+- **Module 8: 10-Second System Diagnostics Sampler**:
+  - Implemented background sampler measuring CPU %, RAM %, SQLite query latency ms, camera FPS, and hosts guard status.
+  - Added REST API `GET /api/diagnostics` and collapsible live diagnostics drawer.
+- **Module 9: Gamified Student Focus Monitor GUI**:
+  - Designed custom Tkinter Canvas circular arc focus ring with 3-tier semantic color shifts.
+  - Added dual balance counters: "Leisure Balance Remaining" vs "Study Time Earned Today".
+  - Refined Compact Zen Floating Pill mode to exact 260x68 geometry.
+  - Integrated anti-tamper Master PIN exit modal (`1323`).
+
 ## [2.0.0] - 2026-11-15 - Master Prompt Full Expansion (Branch: `loki`)
 
 ### Added

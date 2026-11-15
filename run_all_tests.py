@@ -47,6 +47,24 @@ TEST_SUITES = [
         "name": "Primary User Lock, 3D Kinematics, Mobile Distraction & YouTube Enforcement",
         "command": [sys.executable, "test_enforcement_cases.py"],
         "checkpoint": "Enforcement & 3D Learning"
+    },
+    {
+        "id": "DUAL_VIEW",
+        "name": "Dual-View Architecture: Shared DB, Tracker, Web & Desktop App",
+        "command": [sys.executable, "test_dual_view_architecture.py"],
+        "checkpoint": "Dual-View System"
+    },
+    {
+        "id": "MASTER_FEATURES",
+        "name": "Master Features: RBAC, Cryptographic Parent Auth, Policies & Alerts",
+        "command": [sys.executable, "test_master_prompt_features.py"],
+        "checkpoint": "Master RBAC & Policies"
+    },
+    {
+        "id": "EXPANSION_MODULES",
+        "name": "9 Expansion Modules: Timed Lockdown, Frustum Box, 24h Timeline, Diagnostics",
+        "command": [sys.executable, "test_system_expansion_modules.py"],
+        "checkpoint": "Expansion Modules 1-9"
     }
 ]
 

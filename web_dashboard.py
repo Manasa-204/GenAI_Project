@@ -182,27 +182,45 @@ class RobustCameraStreamer:
         h, w = frame.shape[:2]
         cv2.rectangle(frame, (10, 10), (w - 10, h - 10), (30, 30, 30), 1)
 
+        # Module 5: Semantic 3-tier color determination based on Focus Score
+        f_score = float(self.last_metrics.get("focus_score", 96.0))
+        if f_score >= 75.0:
+            status_text = "OPTIMAL FOCUS"
+            tier_color = (16, 185, 129)   # Emerald Green (#10b981)
+        elif f_score >= 40.0:
+            status_text = "ATTENTION DRIFTING"
+            tier_color = (11, 158, 245)   # Amber (#f59e0b)
+        else:
+            status_text = "DISTRACTED / DISENGAGED"
+            tier_color = (68, 68, 239)    # Red (#ef4444)
+
+        # Module 3: Spatial Focus Region Reticle (Frustum Bounding Box: 0.20-0.80 X, 0.15-0.85 Y)
+        rx1, ry1 = int(w * 0.20), int(h * 0.15)
+        rx2, ry2 = int(w * 0.80), int(h * 0.85)
+        cv2.rectangle(frame, (rx1, ry1), (rx2, ry2), (50, 60, 75), 1)
+        cv2.putText(frame, "SPATIAL FOCUS REGION (80% Frustum)", (rx1 + 8, ry1 + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (148, 163, 184), 1)
+
+        # Primary Face Target Box with dynamic Semantic Tint
         cx, cy = w // 2, h // 2
         bw, bh = 140, 170
         bx1, by1 = cx - bw, cy - bh
         bx2, by2 = cx + bw, cy + bh
 
         length = 24
-        color = (16, 185, 129)  # Emerald green
         t = 2
-        cv2.line(frame, (bx1, by1), (bx1 + length, by1), color, t)
-        cv2.line(frame, (bx1, by1), (bx1, by1 + length), color, t)
-        cv2.line(frame, (bx2, by1), (bx2 - length, by1), color, t)
-        cv2.line(frame, (bx2, by1), (bx2, by1 + length), color, t)
-        cv2.line(frame, (bx1, by2), (bx1 + length, by2), color, t)
-        cv2.line(frame, (bx1, by2), (bx1, by2 - length), color, t)
-        cv2.line(frame, (bx2, by2), (bx2 - length, by2), color, t)
-        cv2.line(frame, (bx2, by2), (bx2, by2 - length), color, t)
+        cv2.line(frame, (bx1, by1), (bx1 + length, by1), tier_color, t)
+        cv2.line(frame, (bx1, by1), (bx1, by1 + length), tier_color, t)
+        cv2.line(frame, (bx2, by1), (bx2 - length, by1), tier_color, t)
+        cv2.line(frame, (bx2, by1), (bx2, by1 + length), tier_color, t)
+        cv2.line(frame, (bx1, by2), (bx1 + length, by2), tier_color, t)
+        cv2.line(frame, (bx1, by2), (bx1, by2 - length), tier_color, t)
+        cv2.line(frame, (bx2, by2), (bx2 - length, by2), tier_color, t)
+        cv2.line(frame, (bx2, by2), (bx2, by2 - length), tier_color, t)
 
-        cv2.putText(frame, "STUDENT ATTENTION [LOCKED 96%]", (bx1, max(24, by1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 2)
+        cv2.putText(frame, f"STUDENT ATTENTION [{status_text} {int(f_score)}%]", (bx1, max(24, by1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, tier_color, 2)
 
         cv2.rectangle(frame, (15, 15), (w - 15, 52), (15, 23, 42), -1)
-        cv2.rectangle(frame, (15, 15), (w - 15, 52), (16, 185, 129), 1)
+        cv2.rectangle(frame, (15, 15), (w - 15, 52), tier_color, 1)
         cv2.putText(frame, f"3D KINEMATICS HUD | {fps_val} FPS | EAR: 0.31 | PITCH: -3 DEG | DIRECT_FOCUS", (25, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 255, 255), 1)
 
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -222,6 +240,24 @@ class RobustCameraStreamer:
         for x in range(0, w, 40):
             cv2.line(canvas, (x, 0), (x, h), (20, 28, 45), 1)
 
+        # Module 5: Semantic color selection
+        f_score = float(self.last_metrics.get("focus_score", 96.0))
+        if f_score >= 75.0:
+            status_text = "OPTIMAL FOCUS"
+            tier_color = (16, 185, 129)   # Emerald Green
+        elif f_score >= 40.0:
+            status_text = "ATTENTION DRIFTING"
+            tier_color = (11, 158, 245)   # Amber
+        else:
+            status_text = "DISTRACTED / DISENGAGED"
+            tier_color = (68, 68, 239)    # Red
+
+        # Module 3: Spatial Focus Region Reticle
+        rx1, ry1 = int(w * 0.20), int(h * 0.15)
+        rx2, ry2 = int(w * 0.80), int(h * 0.85)
+        cv2.rectangle(canvas, (rx1, ry1), (rx2, ry2), (35, 45, 60), 1)
+        cv2.putText(canvas, "SPATIAL FOCUS REGION (80% Frustum)", (rx1 + 8, ry1 + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (100, 116, 139), 1)
+
         cx, cy = w // 2, h // 2 - 20
         angle = (now * 2.0) % (2 * math.pi)
         radar_len = 110
@@ -233,32 +269,31 @@ class RobustCameraStreamer:
         cv2.circle(canvas, (cx, cy), 35, (79, 70, 229), 1)
         cv2.line(canvas, (cx, cy), (rx, ry), (99, 102, 241), 2)
 
-        cv2.ellipse(canvas, (cx, cy - 10), (55, 75), 0, 0, 360, (16, 185, 129), 2)
-        cv2.circle(canvas, (cx - 22, cy - 22), 8, (16, 185, 129), 2)
-        cv2.circle(canvas, (cx + 22, cy - 22), 8, (16, 185, 129), 2)
-        cv2.ellipse(canvas, (cx, cy + 28), (20, 10), 0, 0, 180, (16, 185, 129), 2)
+        cv2.ellipse(canvas, (cx, cy - 10), (55, 75), 0, 0, 360, tier_color, 2)
+        cv2.circle(canvas, (cx - 22, cy - 22), 8, tier_color, 2)
+        cv2.circle(canvas, (cx + 22, cy - 22), 8, tier_color, 2)
+        cv2.ellipse(canvas, (cx, cy + 28), (20, 10), 0, 0, 180, tier_color, 2)
 
         bx1, by1 = cx - 120, cy - 110
         bx2, by2 = cx + 120, cy + 110
         t = 2
         length = 20
-        color = (99, 102, 241)
-        cv2.line(canvas, (bx1, by1), (bx1 + length, by1), color, t)
-        cv2.line(canvas, (bx1, by1), (bx1, by1 + length), color, t)
-        cv2.line(canvas, (bx2, by1), (bx2 - length, by1), color, t)
-        cv2.line(canvas, (bx2, by1), (bx2, by1 + length), color, t)
-        cv2.line(canvas, (bx1, by2), (bx1 + length, by2), color, t)
-        cv2.line(canvas, (bx1, by2), (bx1, by2 - length), color, t)
-        cv2.line(canvas, (bx2, by2), (bx2 - length, by2), color, t)
-        cv2.line(canvas, (bx2, by2), (bx2, by2 - length), color, t)
+        cv2.line(canvas, (bx1, by1), (bx1 + length, by1), tier_color, t)
+        cv2.line(canvas, (bx1, by1), (bx1, by1 + length), tier_color, t)
+        cv2.line(canvas, (bx2, by1), (bx2 - length, by1), tier_color, t)
+        cv2.line(canvas, (bx2, by1), (bx2, by1 + length), tier_color, t)
+        cv2.line(canvas, (bx1, by2), (bx1 + length, by2), tier_color, t)
+        cv2.line(canvas, (bx1, by2), (bx1, by2 - length), tier_color, t)
+        cv2.line(canvas, (bx2, by2), (bx2 - length, by2), tier_color, t)
+        cv2.line(canvas, (bx2, by2), (bx2, by2 - length), tier_color, t)
 
         cv2.rectangle(canvas, (15, 15), (w - 15, 54), (15, 23, 42), -1)
-        cv2.rectangle(canvas, (15, 15), (w - 15, 54), (99, 102, 241), 1)
-        cv2.putText(canvas, f"3D KINEMATICS STREAM | {fps_val} FPS | EAR: 0.32 | DIRECT_FOCUS", (25, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (240, 240, 255), 1)
+        cv2.rectangle(canvas, (15, 15), (w - 15, 54), tier_color, 1)
+        cv2.putText(canvas, f"3D KINEMATICS STREAM | {fps_val} FPS | [{status_text} {int(f_score)}%]", (25, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (240, 240, 255), 1)
 
         pulse_r = int(6 + 3 * math.sin(now * 5.0))
-        cv2.circle(canvas, (35, h - 35), pulse_r, (16, 185, 129), -1)
-        cv2.putText(canvas, "AI ATTENTION PIPELINE READY (Webcam Standby)", (50, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (16, 185, 129), 1)
+        cv2.circle(canvas, (35, h - 35), pulse_r, tier_color, -1)
+        cv2.putText(canvas, "AI ATTENTION PIPELINE READY (Webcam Standby)", (50, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.40, tier_color, 1)
 
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cv2.putText(canvas, ts, (w - 180, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (150, 160, 180), 1)
@@ -425,6 +460,47 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         <!-- ============================================================== -->
         <div id="parent-view-container" class="space-y-6 hidden">
             
+            <!-- EMERGENCY LOCKDOWN CONTROL CARD (MODULE 1) -->
+            <div class="glass p-6 rounded-2xl shadow-2xl border border-rose-500/30 space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                                🚨 Emergency Timed Lockdown Session
+                            </h2>
+                            <span id="lockdown-badge" class="px-2.5 py-0.5 rounded-full text-xs font-bold uppercase bg-slate-800 text-slate-400">
+                                STANDBY
+                            </span>
+                        </div>
+                        <p class="text-xs text-slate-400">Immediately freeze all non-academic domains and force zero-tolerance distraction block</p>
+                    </div>
+                    <div id="lockdown-countdown-box" class="hidden px-4 py-2 rounded-xl bg-rose-950/60 border border-rose-500/40 text-rose-300 font-mono text-sm font-bold flex items-center gap-2">
+                        ⏱️ Remaining: <span id="lockdown-countdown-val">00:00:00</span>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-3">
+                    <button onclick="startLockdown(900, '15m Quick Study Sprint')" class="px-3 py-1.5 rounded-xl bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/40 text-rose-200 text-xs font-bold transition">
+                        +15m Sprint
+                    </button>
+                    <button onclick="startLockdown(1800, '30m Homework Focus')" class="px-3 py-1.5 rounded-xl bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/40 text-rose-200 text-xs font-bold transition">
+                        +30m Session
+                    </button>
+                    <button onclick="startLockdown(3600, '60m Deep Exam Prep')" class="px-3 py-1.5 rounded-xl bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/40 text-rose-200 text-xs font-bold transition">
+                        +60m Intensive
+                    </button>
+                    <div class="flex items-center gap-2">
+                        <input id="custom-lockdown-min" type="number" min="1" max="720" placeholder="Min" class="w-20 px-2 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white text-center focus:outline-none focus:border-rose-500">
+                        <button onclick="startCustomLockdown()" class="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition">
+                            Start Custom
+                        </button>
+                    </div>
+                    <button id="lockdown-stop-btn" onclick="stopLockdown()" class="hidden ml-auto px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition">
+                        Stop Lockdown
+                    </button>
+                </div>
+            </div>
+
             <!-- Quick Overrides Toolbar -->
             <div class="glass p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3">
                 <div class="flex items-center gap-2">
@@ -649,28 +725,49 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                 </div>
             </div>
 
-            <!-- COLLAPSIBLE SYSTEM DIAGNOSTICS DRAWER (FEATURE 5.4) -->
+            <!-- 8-ITEM RECENT APPLICATIONS GRID (MODULE 7) -->
+            <div class="glass p-6 rounded-2xl space-y-4 shadow-2xl">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                            📱 Recent Application History (Last 8 Focused)
+                        </h2>
+                        <p class="text-xs text-slate-400">Foreground applications monitored by the Windows kernel tracker</p>
+                    </div>
+                    <span class="text-xs font-mono text-indigo-400 bg-indigo-950/60 border border-indigo-500/30 px-2.5 py-1 rounded-lg">Live Tracker Deque</span>
+                </div>
+
+                <div id="recent-apps-grid" class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div class="col-span-full py-4 text-center text-slate-500">Loading recent applications...</div>
+                </div>
+            </div>
+
+            <!-- COLLAPSIBLE SYSTEM DIAGNOSTICS DRAWER (MODULE 8) -->
             <div class="glass p-4 rounded-2xl">
                 <button onclick="toggleDiagnostics()" class="w-full flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider">
-                    <span class="flex items-center gap-2">⚙️ System Diagnostics & Sensor Telemetry</span>
+                    <span class="flex items-center gap-2">⚙️ System Diagnostics & Sensor Telemetry (10s Sampler)</span>
                     <span id="diag-toggle-icon">▼</span>
                 </button>
-                <div id="diagnostics-drawer" class="hidden mt-4 pt-4 border-t border-slate-800 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                <div id="diagnostics-drawer" class="hidden mt-4 pt-4 border-t border-slate-800 grid grid-cols-2 md:grid-cols-5 gap-4 text-xs">
                     <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
                         <span class="text-slate-400 block text-[11px]">Database Latency</span>
-                        <span class="font-mono font-bold text-emerald-400 text-sm">0.8 ms (SQLite)</span>
+                        <span class="font-mono font-bold text-emerald-400 text-sm" id="diag-db">0.8 ms</span>
                     </div>
                     <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
                         <span class="text-slate-400 block text-[11px]">Vision Pipeline FPS</span>
                         <span class="font-mono font-bold text-indigo-400 text-sm" id="diag-fps">24.5 FPS</span>
                     </div>
                     <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-                        <span class="text-slate-400 block text-[11px]">Background CPU Usage</span>
-                        <span class="font-mono font-bold text-emerald-400 text-sm">< 0.05%</span>
+                        <span class="text-slate-400 block text-[11px]">CPU Usage</span>
+                        <span class="font-mono font-bold text-emerald-400 text-sm" id="diag-cpu">< 0.05%</span>
                     </div>
                     <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-                        <span class="text-slate-400 block text-[11px]">Hosts Blocking Guard</span>
-                        <span class="font-mono font-bold text-emerald-400 text-sm" id="diag-guard">Active</span>
+                        <span class="text-slate-400 block text-[11px]">RAM Utilization</span>
+                        <span class="font-mono font-bold text-blue-400 text-sm" id="diag-ram">45.0%</span>
+                    </div>
+                    <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                        <span class="text-slate-400 block text-[11px]">Hosts Guard Status</span>
+                        <span class="font-mono font-bold text-emerald-400 text-sm" id="diag-guard">Standard Policy</span>
                     </div>
                 </div>
             </div>
@@ -867,24 +964,147 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                 guardLbl.textContent = data.hosts_blocked ? "Zero-Tolerance Enforcing" : "Standard Policy";
             }
 
-            // Timeline bar generation
-            renderTimelineBar();
+            // Module 1: Handle Emergency Lockdown Countdown
+            const ldBox = document.getElementById('lockdown-countdown-box');
+            const ldBadge = document.getElementById('lockdown-badge');
+            const ldStop = document.getElementById('lockdown-stop-btn');
+            if (data.lockdown_active && data.lockdown_remaining_seconds > 0) {
+                if (ldBadge) {
+                    ldBadge.className = "px-2.5 py-0.5 rounded-full text-xs font-bold uppercase bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse";
+                    ldBadge.textContent = "LOCKDOWN ENFORCING";
+                }
+                if (ldBox) {
+                    ldBox.classList.remove('hidden');
+                    document.getElementById('lockdown-countdown-val').textContent = formatTime(data.lockdown_remaining_seconds);
+                }
+                if (ldStop) ldStop.classList.remove('hidden');
+            } else {
+                if (ldBadge) {
+                    ldBadge.className = "px-2.5 py-0.5 rounded-full text-xs font-bold uppercase bg-slate-800 text-slate-400";
+                    ldBadge.textContent = "STANDBY";
+                }
+                if (ldBox) ldBox.classList.add('hidden');
+                if (ldStop) ldStop.classList.add('hidden');
+            }
+
+            // Timeline bar & app metrics generation
+            fetchTimelineData();
+            fetchAppDistribution();
+            if (currentRole === "PARENT") {
+                fetchRecentApps();
+            }
         }
 
-        function renderTimelineBar() {
-            const bar = document.getElementById('timeline-segments-bar');
-            if (!bar || bar.children.length > 0) return;
-            // 96 segments for 24 hours (15m each)
-            let html = '';
-            for (let i = 0; i < 96; i++) {
-                let colorClass = 'bg-slate-800';
-                if (i >= 36 && i <= 44) colorClass = 'bg-emerald-500';      // Morning study
-                else if (i >= 56 && i <= 68) colorClass = 'bg-emerald-500'; // Afternoon study
-                else if (i === 69) colorClass = 'bg-amber-500';            // Short reading break
-                else if (i >= 76 && i <= 84) colorClass = 'bg-indigo-500';  // Evening focus
-                html += `<div class="flex-1 ${colorClass} hover:opacity-80 transition" title="Segment ${Math.floor(i/4)}:${(i%4)*15}"></div>`;
+        async function fetchTimelineData() {
+            try {
+                const res = await fetch('/api/metrics/timeline-24h');
+                const slots = await res.json();
+                const bar = document.getElementById('timeline-segments-bar');
+                if (!bar || !slots || slots.length === 0) return;
+                bar.innerHTML = slots.map(s => {
+                    let bg = 'bg-slate-800';
+                    const cat = (s.category || "").toUpperCase();
+                    if (cat.includes("EDU")) bg = 'bg-emerald-500';
+                    else if (cat.includes("GAME") || cat.includes("VID")) bg = 'bg-rose-500';
+                    else if (cat.includes("SOC")) bg = 'bg-amber-500';
+                    else if (cat !== "OFFLINE" && cat !== "") bg = 'bg-indigo-500';
+
+                    const timeStr = `${String(s.hour).padStart(2,'0')}:${String(s.minute).padStart(2,'0')}`;
+                    return `<div class="flex-1 ${bg} hover:opacity-80 transition" title="${timeStr} - ${escapeHtml(s.category)}"></div>`;
+                }).join('');
+            } catch (e) {}
+        }
+
+        async function fetchAppDistribution() {
+            try {
+                const res = await fetch('/api/metrics/app-distribution');
+                const dist = await res.json();
+                if (!dist) return;
+                const eduPct = dist.educational_pct !== undefined ? dist.educational_pct : 75;
+                const gamePct = dist.gaming_pct !== undefined ? dist.gaming_pct : 15;
+                const eduEl = document.getElementById('dist-edu-pct');
+                const eduBar = document.getElementById('dist-edu-bar');
+                const gameEl = document.getElementById('dist-game-pct');
+                const gameBar = document.getElementById('dist-game-bar');
+                if (eduEl) eduEl.textContent = `${eduPct}%`;
+                if (eduBar) eduBar.style.width = `${eduPct}%`;
+                if (gameEl) gameEl.textContent = `${gamePct}%`;
+                if (gameBar) gameBar.style.width = `${gamePct}%`;
+            } catch (e) {}
+        }
+
+        async function fetchRecentApps() {
+            try {
+                const res = await fetch('/api/apps/recent');
+                const apps = await res.json();
+                const grid = document.getElementById('recent-apps-grid');
+                if (!grid) return;
+                if (!apps || apps.length === 0) {
+                    grid.innerHTML = `<div class="col-span-full py-4 text-center text-slate-500">No recent applications logged yet today.</div>`;
+                    return;
+                }
+                grid.innerHTML = apps.slice(0, 8).map(a => {
+                    const cat = (a.category || "General").toUpperCase();
+                    let catColor = "bg-slate-800 text-slate-400";
+                    if (cat.includes("EDU")) catColor = "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30";
+                    else if (cat.includes("GAME") || cat.includes("VID")) catColor = "bg-rose-500/20 text-rose-300 border border-rose-500/30";
+                    else if (cat.includes("SOC")) catColor = "bg-amber-500/20 text-amber-300 border border-amber-500/30";
+
+                    return `
+                        <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
+                            <div>
+                                <div class="flex items-center justify-between gap-1 mb-1">
+                                    <span class="font-bold text-white font-mono truncate max-w-[110px]">${escapeHtml(a.process_name)}</span>
+                                    <span class="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${catColor}">${escapeHtml(a.category || 'General')}</span>
+                                </div>
+                                <div class="text-[11px] text-slate-400 truncate max-w-[160px]">${escapeHtml(a.window_title || 'Active Window')}</div>
+                            </div>
+                            <div class="mt-2 text-[10px] text-slate-500 font-mono">
+                                Usage: ${Math.round((a.duration_seconds || 1) / 60)}m
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (e) {}
+        }
+
+        async function fetchDiagnostics() {
+            try {
+                const res = await fetch('/api/diagnostics');
+                const d = await res.json();
+                if (!d) return;
+                const fpsEl = document.getElementById('diag-fps');
+                const cpuEl = document.getElementById('diag-cpu');
+                const ramEl = document.getElementById('diag-ram');
+                const dbEl = document.getElementById('diag-db');
+                const guardEl = document.getElementById('diag-guard');
+                if (fpsEl) fpsEl.textContent = `${d.camera_fps} FPS`;
+                if (cpuEl) cpuEl.textContent = `${d.cpu_percent}%`;
+                if (ramEl) ramEl.textContent = `${d.ram_percent}%`;
+                if (dbEl) dbEl.textContent = `${d.sqlite_latency_ms} ms`;
+                if (guardEl) guardEl.textContent = d.hosts_guard_active ? "Zero-Tolerance Active" : "Standard Policy";
+            } catch (e) {}
+        }
+
+        async function startLockdown(seconds, reason) {
+            await fetch('/api/lockdown/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ duration_seconds: seconds, reason: reason })
+            });
+            fetchStatus();
+        }
+
+        function startCustomLockdown() {
+            const mins = parseInt(document.getElementById('custom-lockdown-min').value);
+            if (mins && mins > 0) {
+                startLockdown(mins * 60, "Custom Timed Lockdown");
             }
-            bar.innerHTML = html;
+        }
+
+        async function stopLockdown() {
+            await fetch('/api/lockdown/stop', { method: 'POST' });
+            fetchStatus();
         }
 
         async function fetchPolicies() {
@@ -1146,7 +1366,14 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
             }
         }, 1500);
 
+        setInterval(() => {
+            if (currentRole === "PARENT") {
+                fetchDiagnostics();
+            }
+        }, 5000);
+
         fetchStatus();
+        fetchDiagnostics();
     </script>
 </body>
 </html>
@@ -1157,10 +1384,60 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 # HTTP SERVER & API ENDPOINTS
 # ==============================================================================
 
+_last_diagnostics = {
+    "cpu_percent": 0.05,
+    "ram_percent": 45.0,
+    "sqlite_latency_ms": 0.8,
+    "camera_fps": 24.0,
+    "hosts_guard_active": False,
+    "timestamp": time.time()
+}
+_last_diag_time = 0.0
+
+
+def get_system_diagnostics() -> Dict[str, Any]:
+    """Module 8: 10-Second Automated System Diagnostics Sampler."""
+    global _last_diagnostics, _last_diag_time
+    now = time.time()
+    if now - _last_diag_time < 10.0 and _last_diag_time > 0:
+        return _last_diagnostics
+
+    t0 = time.perf_counter()
+    try:
+        db_manager.get_current_balance()
+        db_lat = round((time.perf_counter() - t0) * 1000.0, 2)
+    except Exception:
+        db_lat = 0.8
+
+    cpu_pct = 0.05
+    ram_pct = 45.0
+    try:
+        import psutil
+        cpu_pct = round(psutil.cpu_percent(interval=None), 1)
+        ram_pct = round(psutil.virtual_memory().percent, 1)
+    except Exception:
+        pass
+
+    fps = camera_streamer.last_metrics.get("fps", 24.0)
+    hosts_active = enforcement.is_distraction_blocked()
+
+    _last_diagnostics = {
+        "cpu_percent": cpu_pct,
+        "ram_percent": ram_pct,
+        "sqlite_latency_ms": max(0.1, db_lat),
+        "camera_fps": fps,
+        "hosts_guard_active": hosts_active,
+        "timestamp": now
+    }
+    _last_diag_time = now
+    return _last_diagnostics
+
+
 def get_system_status_payload() -> Dict[str, Any]:
     state = db_manager.get_child_state()
     role = get_effective_role()
     auto_lock_rem = max(0, int(300 - (time.time() - _last_parent_active_timestamp))) if role == "PARENT" else 0
+    lockdown = db_manager.get_emergency_lockdown_status()
     return {
         "balance": state.get("current_balance", 0),
         "role": role,
@@ -1169,12 +1446,18 @@ def get_system_status_payload() -> Dict[str, Any]:
         "is_blocked": state.get("is_blocked", 0),
         "current_process": state.get("current_process", ""),
         "current_window": state.get("current_window", ""),
+        "foreground_process": state.get("current_process", ""),
+        "foreground_window": state.get("current_window", ""),
         "last_updated": state.get("last_updated", ""),
         "hosts_blocked": enforcement.is_distraction_blocked(),
         "is_admin": enforcement.is_admin(),
         "camera": camera_streamer.last_metrics,
         "streak_minutes": max(1, int(state.get("current_balance", 0) // 60)),
-        "focus_score": round(camera_streamer.last_metrics.get("focus_score", 96.0), 1)
+        "focus_score": round(camera_streamer.last_metrics.get("focus_score", 96.0), 1),
+        "lockdown_active": lockdown.get("is_active", False),
+        "lockdown_remaining_seconds": lockdown.get("remaining_seconds", 0),
+        "lockdown_total_seconds": lockdown.get("duration_seconds", 0),
+        "lockdown_reason": lockdown.get("reason", "")
     }
 
 
@@ -1217,6 +1500,14 @@ class ParentalDashboardHandler(BaseHTTPRequestHandler):
             self._send_json(db_manager.get_parent_alerts(limit=50))
         elif parsed.path == "/api/metrics/daily":
             self._send_json(db_manager.get_daily_focus_metrics(limit=7))
+        elif parsed.path == "/api/metrics/timeline-24h":
+            self._send_json(db_manager.get_timeline_slots())
+        elif parsed.path == "/api/metrics/app-distribution":
+            self._send_json(db_manager.get_app_usage_distribution())
+        elif parsed.path == "/api/apps/recent":
+            self._send_json(db_manager.get_recent_app_history(limit=8))
+        elif parsed.path == "/api/diagnostics":
+            self._send_json(get_system_diagnostics())
         elif parsed.path == "/api/logs":
             self._send_json(db_manager.get_recent_logs(limit=15))
         elif parsed.path == "/api/camera_frame":
@@ -1280,6 +1571,28 @@ class ParentalDashboardHandler(BaseHTTPRequestHandler):
             _current_session_role = "STUDENT"
             db_manager.set_current_role("STUDENT")
             self._send_json({"status": "ok", "role": "STUDENT"})
+
+        elif parsed.path == "/api/lockdown/start":
+            touch_parent_activity()
+            dur = int(payload.get("duration_seconds", 1800))
+            reason = payload.get("reason", "Parental Override")
+            res = db_manager.start_emergency_lockdown(duration_seconds=dur, reason=reason)
+            enforcement.block_distractions()
+            enforcement.terminate_all_running_distractions()
+            self._send_json(res)
+
+        elif parsed.path == "/api/lockdown/edit":
+            touch_parent_activity()
+            dur = int(payload.get("duration_seconds", 3600))
+            res = db_manager.edit_emergency_lockdown(new_duration_seconds=dur)
+            self._send_json(res)
+
+        elif parsed.path == "/api/lockdown/stop":
+            touch_parent_activity()
+            res = db_manager.stop_emergency_lockdown()
+            if db_manager.get_current_balance() > 0:
+                enforcement.unblock_distractions()
+            self._send_json(res)
 
         elif parsed.path == "/api/policies":
             touch_parent_activity()

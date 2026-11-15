@@ -3,7 +3,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011-blue.svg)](https://microsoft.com/windows)
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.13-brightgreen.svg)](https://python.org)
 [![Engineers](https://img.shields.io/badge/Engineering-4%20Specialized%20Roles-indigo.svg)](#multi-agent-engineering-roles)
-[![Tests](https://img.shields.io/badge/Test%20Suite-8%2F8%20Passed%20(100%25)-emerald.svg)](#verification--test-suite)
+[![Tests](https://img.shields.io/badge/Test%20Suite-9%2F9%20Passed%20(100%25)-emerald.svg)](#verification--test-suite)
 [![Branch](https://img.shields.io/badge/Branch-loki-purple.svg)](https://github.com/Manasa-204/GenAI_Project/tree/loki)
 
 **Demon** is an autonomous, tamper-resistant, dual-portal parental control and attentive study enforcement platform. Engineered around physical kinematics, semantic context understanding, and OS-level enforcement, Demon ensures focused academic learning by dynamically budgeting screen time, neutralizing digital deviations, and providing real-time AI supervision without compromising student well-being.
@@ -272,6 +272,13 @@ Registers `Demon.exe` into Windows Task Scheduler:
 | `/api/alerts` | `GET` | Parent | Retrieves security and tamper alerts from `parent_alerts` ledger |
 | `/api/alerts/acknowledge` | `POST` | Parent | Acknowledges / dismisses alert by ID (`{"id": 1}`) |
 | `/api/metrics/daily` | `GET` | Parent | Returns 7-day focus analytics, pure study seconds, and distraction attempts |
+| `/api/metrics/timeline-24h` | `GET` | Parent | Returns 96 15-minute segments with category tagging across the 24-hour day |
+| `/api/metrics/app-distribution` | `GET` | Parent | Returns daily category breakdown percentages (Educational, Gaming, Social) |
+| `/api/apps/recent` | `GET` | Parent | Returns circular deque of the last 8 focused foreground applications |
+| `/api/diagnostics` | `GET` | Parent | Automated 10-second diagnostics sampler (CPU %, RAM %, SQLite latency ms, FPS) |
+| `/api/lockdown/start` | `POST` | Parent | Starts a timed emergency lockdown session (`{"duration_seconds": 1800}`) |
+| `/api/lockdown/edit` | `POST` | Parent | Adjusts active lockdown duration (`{"duration_seconds": 3600}`) |
+| `/api/lockdown/stop` | `POST` | Parent | Terminates emergency lockdown and restores standard network policies |
 | `/api/calibrate` | `POST` | Parent | Triggers 30-second baseline posture calibration wizard |
 | `/api/adjust-time` | `POST` | Parent | Adjusts student screen time balance by delta seconds (`{"delta": 1800}`) |
 | `/api/set-time` | `POST` | Parent | Resets student screen time balance to absolute seconds (`{"balance": 3600}`) |
@@ -292,11 +299,11 @@ Run the master test runner across all modules:
 & "C:\Users\nihal\AppData\Local\Programs\Python\Python313\python.exe" run_all_tests.py
 ```
 
-### Full Verification Matrix (8/8 Suites Passed)
+### Full Verification Matrix (9/9 Suites Passed)
 
 | Test Suite | Execution Command | Result |
 |---|---|:---:|
-| **Master Test Runner** | `python run_all_tests.py` | **`6/6 PASS`** |
+| **Master Test Runner** | `python run_all_tests.py` | **`9/9 PASS`** |
 | **Database & Persistence** | `python test_db_manager.py` | **`PASS (100%)`** |
 | **Sensory Pipelines** | `python test_checkpoint_1.py` | **`PASS (100%)`** |
 | **Multi-Modal Fusion** | `python test_checkpoint_2.py` | **`PASS (100%)`** |
@@ -305,6 +312,7 @@ Run the master test runner across all modules:
 | **Enforcement & 3D Learning** | `python test_enforcement_cases.py` | **`PASS (100%)`** |
 | **Dual-View Architecture** | `python test_dual_view_architecture.py` | **`PASS (100%)`** |
 | **Master Prompt Features** | `python test_master_prompt_features.py` | **`PASS (100%)`** |
+| **9-Module Expansion Suite** | `python test_system_expansion_modules.py` | **`PASS (100%)`** |
 
 ---
 
@@ -312,32 +320,33 @@ Run the master test runner across all modules:
 
 ```
 GenAI_Project/
-├── db_manager.py                   # SQLite schema, PBKDF2 parent auth, policies, metrics
-├── policy_engine.py                # Quota evaluation, curfews, midnight resets, alert dispatcher
-├── logic_controller.py             # AND Gate decision engine, research CSV logger
-├── vision_pipeline.py              # MediaPipe Face Mesh, 6-DOF solvePnP, 8-state posture matrix
-├── user_tracker.py                 # PrimaryUserTracker (spatial lock) & WindowsProcessTracker
-├── semantic_pipeline.py            # YouTube regex decomposition, Ollama SLM, cache
-├── enforcement.py                  # Hosts file blocking, zero-tolerance process termination
-├── main.py                         # Headless background orchestrator daemon
-├── web_dashboard.py                # Dual-Portal web dashboard & live MJPEG camera stream
-├── desktop_app.py                  # Student Desktop HUD GUI with anti-tamper PIN exit modal
-├── Demon.spec                      # Headless PyInstaller build specification
-├── start_all.bat                   # One-click multi-process runtime launcher
-├── build_exe.bat                   # PyInstaller executable compilation script
-├── install_background_service.bat  # Windows Task Scheduler registration script
-├── Grant_Hosts_Permission.bat      # Windows hosts file permissions configuration
-├── run_all_tests.py                # Master automated test suite runner
-├── test_db_manager.py              # Checkpoint 1: Database persistence unit tests
-├── test_checkpoint_1.py            # Checkpoint 1: Vision EAR & Ollama classification
-├── test_checkpoint_2.py            # Checkpoint 2: Multi-modal fusion & state cache
-├── test_logic_controller.py        # Checkpoint 2: Decision engine logic tests
-├── test_system_orchestration.py    # Checkpoint 3: Zero-balance & earn-and-burn tests
-├── test_enforcement_cases.py       # Checkpoint 4: 3D kinematics, mobile distraction & YouTube
-├── test_dual_view_architecture.py  # Dual-view sync, quotas & background tracker tests
-├── test_master_prompt_features.py  # Master Prompt expansion feature integration tests
-├── CHANGELOG.md                    # Detailed version release notes and milestone history
-└── progress_log.md                 # Technical development log, architecture decisions & fixes
+├── db_manager.py                     # SQLite schema, PBKDF2 parent auth, policies, metrics
+├── policy_engine.py                  # Quota evaluation, curfews, midnight resets, alert dispatcher
+├── logic_controller.py               # AND Gate decision engine, research CSV logger
+├── vision_pipeline.py                # MediaPipe Face Mesh, 6-DOF solvePnP, 8-state posture matrix
+├── user_tracker.py                   # PrimaryUserTracker (spatial lock) & WindowsProcessTracker
+├── semantic_pipeline.py              # YouTube regex decomposition, Ollama SLM, cache
+├── enforcement.py                    # Hosts file blocking, surgical termination & zero browser killing
+├── main.py                           # Headless background orchestrator daemon
+├── web_dashboard.py                  # Dual-Portal web dashboard & live MJPEG camera stream
+├── desktop_app.py                    # Student Desktop HUD GUI with anti-tamper PIN exit modal
+├── Demon.spec                        # Headless PyInstaller build specification
+├── start_all.bat                     # One-click multi-process runtime launcher
+├── build_exe.bat                     # PyInstaller executable compilation script
+├── install_background_service.bat    # Windows Task Scheduler registration script
+├── Grant_Hosts_Permission.bat        # Windows hosts file permissions configuration
+├── run_all_tests.py                  # Master automated test suite runner (9 suites)
+├── test_db_manager.py                # Checkpoint 1: Database persistence unit tests
+├── test_checkpoint_1.py              # Checkpoint 1: Vision EAR & Ollama classification
+├── test_checkpoint_2.py              # Checkpoint 2: Multi-modal fusion & state cache
+├── test_logic_controller.py          # Checkpoint 2: Decision engine logic tests
+├── test_system_orchestration.py      # Checkpoint 3: Zero-balance & earn-and-burn tests
+├── test_enforcement_cases.py         # Checkpoint 4: 3D kinematics, mobile distraction & YouTube
+├── test_dual_view_architecture.py    # Dual-view sync, quotas & background tracker tests
+├── test_master_prompt_features.py    # Master Prompt expansion feature integration tests
+├── test_system_expansion_modules.py  # 9-Module expansion verification test suite
+├── CHANGELOG.md                      # Detailed version release notes and milestone history
+└── progress_log.md                   # Technical development log, architecture decisions & fixes
 ```
 
 ---

@@ -2,8 +2,8 @@
 
 **Branch**: `loki`  
 **Repository**: `https://github.com/Manasa-204/GenAI_Project.git`  
-**Last Updated**: 2026-11-15 12:05:00 IST  
-**Status**: `ALL TEST SUITES PASSING (8/8)` | `PRODUCTION READY`
+**Last Updated**: 2026-11-15 19:30:00 IST  
+**Status**: `ALL TEST SUITES PASSING (9/9)` | `PRODUCTION READY`
 
 ---
 
@@ -30,6 +30,16 @@ Over the course of the project, Demon Study Monitor evolved from an initial mult
    - **Feature 5**: Web Dashboard UI transformation into Student Motivational HUD (circular progress ring, dynamic status pill, leisure card) vs Parent Admin Operations Center (focus gauge, 24h timeline bar, app category distribution, policy manager, diagnostics drawer).
    - **Feature 6**: Anti-tamper desktop client packaging with modal PIN exit dialog preventing unauthorized termination.
    - **Feature 7**: MediaPipe Python 3.13 deprecation compatibility shims and 30-second interactive calibration wizard.
+4. **Milestone 4 (9-Module Full Platform Enhancement & Optimization)**:
+   - **Module 1 (Emergency Lockdown Controls)**: Timed parental lockdown sessions with start, edit, and stop REST APIs (`/api/lockdown/start`, `/api/lockdown/edit`, `/api/lockdown/stop`), live remaining countdown, and automatic post-lockdown domain restoration.
+   - **Module 2 (Surgical Enforcement & Browser Preservation)**: Zero-kill policy for primary web browsers (`chrome.exe`, `msedge.exe`, `firefox.exe`, `brave.exe`, `opera.exe`), restricting browser intervention strictly to window minimization while forcefully terminating standalone distraction apps.
+   - **Module 3 (Spatial Focus Region Filtering)**: Normalized frustum bounding box (`X_MIN=0.20`, `X_MAX=0.80`, `Y_MIN=0.15`, `Y_MAX=0.85`), ignoring peripheral passersby, with frustum reticle rendered on camera HUD.
+   - **Module 4 (Continuous Focus Score EMA)**: Real-time exponential moving average (EMA) Focus Quality Score (0-100%) computed across 8 posture states with 30-frame rolling kinematics buffer.
+   - **Module 5 (Semantic Color Streaming)**: 3-tier color synchronization across Camera HUD, Desktop App, and Dashboard (Green >= 75%, Amber 40-74%, Red < 40%).
+   - **Module 6 (24-Hour Timeline & App Distribution)**: Table `timeline_slots` (96 15-minute segments) and category usage distribution APIs (`/api/metrics/timeline-24h`, `/api/metrics/app-distribution`).
+   - **Module 7 (8-Item Recent App History Buffer)**: Deque tracking last 8 focused applications with category tags, duration, and REST API (`/api/apps/recent`).
+   - **Module 8 (10-Second System Diagnostics Sampler)**: Automated background sampler querying CPU, RAM, SQLite query latency, camera FPS, and hosts guard status (`/api/diagnostics`).
+   - **Module 9 (Gamified Student Focus Monitor GUI)**: Dynamic Tkinter Canvas circular arc focus ring, dual balance counters ("Leisure Remaining" vs "Study Time Earned Today"), 260x68 Zen Pill mode, and Master PIN exit modal (`1323`).
 
 ---
 
@@ -155,37 +165,46 @@ Test run on Python 3.13 (x64 Windows 10/11):
 DEMON STUDY MONITOR - MASTER TEST RUNNER ACROSS ALL 4 ENGINEERS
 ======================================================================
 
-[1/6] Running Checkpoint 1 (Eng 1): Eng 1: DB Scaffolding & Persistence Across Restarts...
-    -> [PASS] Passed in 0.334s
+[1/9] Running Checkpoint 1 (Eng 1): Eng 1: DB Scaffolding & Persistence Across Restarts...
+    -> [PASS] Passed in 0.411s
 
-[2/6] Running Checkpoint 1 (Eng 2, 3, 4): Eng 2, 3, 4: Vision (EAR 2s), Ollama Classification & Hosts Blocking...
-    -> [PASS] Passed in 1.898s
+[2/9] Running Checkpoint 1 (Eng 2, 3, 4): Eng 2, 3, 4: Vision (EAR 2s), Ollama Classification & Hosts Blocking...
+    -> [PASS] Passed in 1.571s
 
-[3/6] Running Checkpoint 2 (Sprint 2): The Brain: AND Gate, Wikipedia Accrual & Vision Override...
-    -> [PASS] Passed in 1.824s
+[3/9] Running Checkpoint 2 (Sprint 2): The Brain: AND Gate, Wikipedia Accrual & Vision Override...
+    -> [PASS] Passed in 1.572s
 
-[4/6] Running Checkpoint 2 (Fusion & Telemetry): Multi-Modal State Fusion, Semantic Cache & Telemetry...
-    -> [PASS] Passed in 1.701s
+[4/9] Running Checkpoint 2 (Fusion & Telemetry): Multi-Modal State Fusion, Semantic Cache & Telemetry...
+    -> [PASS] Passed in 1.437s
 
-[5/6] Running Checkpoint 3 (Sprint 3 & 4): System Orchestration: Zero-Balance, Earn-and-Burn & Graceful Exit...
-    -> [PASS] Passed in 1.742s
+[5/9] Running Checkpoint 3 (Sprint 3 & 4): System Orchestration: Zero-Balance, Earn-and-Burn & Graceful Exit...
+    -> [PASS] Passed in 1.483s
 
-[6/6] Running Enforcement & 3D Learning: Primary User Lock, 3D Kinematics, Mobile Distraction & YouTube Enforcement...
-    -> [PASS] Passed in 2.419s
+[6/9] Running Enforcement & 3D Learning: Primary User Lock, 3D Kinematics, Mobile Distraction & YouTube Enforcement...
+    -> [PASS] Passed in 2.112s
+
+[7/9] Running Dual-View System: Dual-View Architecture: Shared DB, Tracker, Web & Desktop App...
+    -> [PASS] Passed in 1.802s
+
+[8/9] Running Master RBAC & Policies: Master Features: RBAC, Cryptographic Parent Auth, Policies & Alerts...
+    -> [PASS] Passed in 2.168s
+
+[9/9] Running Expansion Modules 1-9: 9 Expansion Modules: Timed Lockdown, Frustum Box, 24h Timeline, Diagnostics...
+    -> [PASS] Passed in 2.169s
 
 ======================================================================
-SUMMARY: 6/6 Test Suites Passed (9.92s)
+SUMMARY: 9/9 Test Suites Passed (14.72s)
 ======================================================================
-  [PASS] |  0.33s | Checkpoint 1 (Eng 1)      | Eng 1: DB Scaffolding & Persistence Across Restarts
-  [PASS] |  1.90s | Checkpoint 1 (Eng 2, 3, 4) | Eng 2, 3, 4: Vision (EAR 2s), Ollama Classification & Hosts Blocking
-  [PASS] |  1.82s | Checkpoint 2 (Sprint 2)   | The Brain: AND Gate, Wikipedia Accrual & Vision Override
-  [PASS] |  1.70s | Checkpoint 2 (Fusion & Telemetry) | Multi-Modal State Fusion, Semantic Cache & Telemetry
-  [PASS] |  1.74s | Checkpoint 3 (Sprint 3 & 4) | System Orchestration: Zero-Balance, Earn-and-Burn & Graceful Exit
-  [PASS] |  2.42s | Enforcement & 3D Learning | Primary User Lock, 3D Kinematics, Mobile Distraction & YouTube Enforcement
+  [PASS] |  0.41s | Checkpoint 1 (Eng 1)      | Eng 1: DB Scaffolding & Persistence Across Restarts
+  [PASS] |  1.57s | Checkpoint 1 (Eng 2, 3, 4) | Eng 2, 3, 4: Vision (EAR 2s), Ollama Classification & Hosts Blocking
+  [PASS] |  1.57s | Checkpoint 2 (Sprint 2)   | The Brain: AND Gate, Wikipedia Accrual & Vision Override
+  [PASS] |  1.44s | Checkpoint 2 (Fusion & Telemetry) | Multi-Modal State Fusion, Semantic Cache & Telemetry
+  [PASS] |  1.48s | Checkpoint 3 (Sprint 3 & 4) | System Orchestration: Zero-Balance, Earn-and-Burn & Graceful Exit
+  [PASS] |  2.11s | Enforcement & 3D Learning | Primary User Lock, 3D Kinematics, Mobile Distraction & YouTube Enforcement
+  [PASS] |  1.80s | Dual-View System          | Dual-View Architecture: Shared DB, Tracker, Web & Desktop App
+  [PASS] |  2.17s | Master RBAC & Policies    | Master Features: RBAC, Cryptographic Parent Auth, Policies & Alerts
+  [PASS] |  2.17s | Expansion Modules 1-9     | 9 Expansion Modules: Timed Lockdown, Frustum Box, 24h Timeline, Diagnostics
 ======================================================================
 ```
 
-**Additional Specialized Suites Passed**:
-- `test_dual_view_architecture.py`: 6/6 tests passed in 0.40s.
-- `test_master_prompt_features.py`: 5/5 tests passed in 0.65s.
-- Total verification: **8/8 test suites passed (100%)**.
+**All 9/9 Test Suites Passed with 100% Reliability**.

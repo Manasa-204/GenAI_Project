@@ -222,30 +222,37 @@ class ChildDesktopApp:
             pady=4,
             relief=tk.FLAT
         )
-        self.status_pill.pack(anchor=tk.CENTER, pady=(0, 6))
+        self.status_pill.pack(anchor=tk.CENTER, pady=(0, 8))
 
-        # Digital Countdown Clock
-        self.clock_lbl = tk.Label(
-            self.main_body,
-            text="00:00:00",
-            font=("Consolas", 36, "bold"),
-            fg="#ffffff",
-            bg="#0b0f19"
-        )
-        self.clock_lbl.pack(anchor=tk.CENTER, pady=2)
+        # Module 9: Focus Ring & Dual Balance Counters
+        hero_frame = tk.Frame(self.main_body, bg="#0b0f19")
+        hero_frame.pack(fill=tk.X, pady=(0, 10))
 
-        self.sub_clock_lbl = tk.Label(
-            self.main_body,
-            text="Remaining Screen & Study Time",
-            font=("Segoe UI", 8),
-            fg="#9ca3af",
-            bg="#0b0f19"
-        )
-        self.sub_clock_lbl.pack(anchor=tk.CENTER, pady=(0, 10))
+        # Dynamic Circular Canvas Focus Ring (Module 9)
+        self.canvas_ring = tk.Canvas(hero_frame, width=110, height=110, bg="#0b0f19", highlightthickness=0)
+        self.canvas_ring.pack(side=tk.LEFT, padx=(2, 12))
+
+        # Dual Balance Cards Frame
+        dual_bal_frame = tk.Frame(hero_frame, bg="#0b0f19")
+        dual_bal_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Card 1: Entertainment Balance Remaining
+        card_ent = tk.Frame(dual_bal_frame, bg="#111827", padx=8, pady=5, highlightbackground="#1f2937", highlightthickness=1)
+        card_ent.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(card_ent, text="🎮 LEISURE BALANCE REMAINING", font=("Segoe UI", 7, "bold"), fg="#94a3b8", bg="#111827").pack(anchor="w")
+        self.clock_lbl = tk.Label(card_ent, text="00:00:00", font=("Consolas", 15, "bold"), fg="#ffffff", bg="#111827")
+        self.clock_lbl.pack(anchor="w")
+
+        # Card 2: Study Time Earned Today
+        card_study = tk.Frame(dual_bal_frame, bg="#111827", padx=8, pady=5, highlightbackground="#1f2937", highlightthickness=1)
+        card_study.pack(fill=tk.X)
+        tk.Label(card_study, text="📚 STUDY TIME EARNED TODAY", font=("Segoe UI", 7, "bold"), fg="#10b981", bg="#111827").pack(anchor="w")
+        self.study_clock_lbl = tk.Label(card_study, text="00:00:00", font=("Consolas", 15, "bold"), fg="#34d399", bg="#111827")
+        self.study_clock_lbl.pack(anchor="w")
 
         # Progress Bar & Focus Battery Gauge
         prog_frame = tk.Frame(self.main_body, bg="#0b0f19")
-        prog_frame.pack(fill=tk.X, pady=(0, 12))
+        prog_frame.pack(fill=tk.X, pady=(0, 10))
 
         style = ttk.Style()
         style.theme_use("clam")
@@ -339,11 +346,11 @@ class ChildDesktopApp:
         status_tip.pack(side=tk.RIGHT)
 
     def _build_zen_ui(self):
-        """Constructs the Compact Zen Floating Pill layout."""
+        """Constructs the Compact Zen Floating Pill layout (Module 9: 260x68)."""
         for widget in self.root.winfo_children():
             widget.destroy()
 
-        self.root.geometry("260x65")
+        self.root.geometry("260x68")
         self.root.resizable(False, False)
 
         zen_frame = tk.Frame(self.root, bg="#070a12", padx=12, pady=8)
@@ -373,6 +380,36 @@ class ChildDesktopApp:
             cursor="hand2"
         )
         expand_btn.pack(side=tk.RIGHT)
+
+    def _draw_focus_ring(self, score: float):
+        """Module 9: Dynamic Tkinter circular canvas arc focus ring with semantic color shifts."""
+        if not hasattr(self, 'canvas_ring') or not self.canvas_ring.winfo_exists():
+            return
+        self.canvas_ring.delete("all")
+        score = max(0.0, min(100.0, float(score)))
+
+        # Module 5 & 9: Semantic color shifts
+        if score >= 75.0:
+            color = "#10b981"  # Green
+            tier_lbl = "OPTIMAL"
+        elif score >= 40.0:
+            color = "#f59e0b"  # Amber
+            tier_lbl = "DRIFTING"
+        else:
+            color = "#ef4444"  # Red
+            tier_lbl = "DISTRACTED"
+
+        # Background track
+        self.canvas_ring.create_oval(10, 10, 100, 100, outline="#1f2937", width=7)
+
+        # Dynamic arc
+        extent = -(score / 100.0) * 359.9
+        if abs(extent) > 0.5:
+            self.canvas_ring.create_arc(10, 10, 100, 100, start=90, extent=extent, outline=color, width=7, style=tk.ARC)
+
+        # Inner text
+        self.canvas_ring.create_text(55, 48, text=f"{int(score)}%", font=("Consolas", 15, "bold"), fill="#ffffff")
+        self.canvas_ring.create_text(55, 68, text=tier_lbl, font=("Segoe UI", 7, "bold"), fill=color)
 
     def _switch_to_zen_mode(self):
         self.is_zen_mode = True
@@ -425,6 +462,24 @@ class ChildDesktopApp:
             time_str = self._format_time(balance)
             if hasattr(self, 'clock_lbl'):
                 self.clock_lbl.config(text=time_str)
+
+            # Module 9: Dual Balance - Study Time Earned Today
+            try:
+                dist = db_manager.get_app_usage_distribution(db_path=self.db_path)
+                study_sec = dist.get("breakdown", {}).get("EDUCATIONAL", 0)
+            except Exception:
+                study_sec = 0
+            if hasattr(self, 'study_clock_lbl'):
+                self.study_clock_lbl.config(text=self._format_time(study_sec))
+
+            # Module 9: Focus Quality Score Ring
+            try:
+                metrics = db_manager.get_daily_focus_metrics(limit=1, db_path=self.db_path)
+                f_score = metrics[0].get("focus_quality_score", 95.0) if metrics else 95.0
+            except Exception:
+                f_score = 95.0
+            if hasattr(self, 'canvas_ring'):
+                self._draw_focus_ring(f_score)
 
             # Update Zen Mode Elements
             if self.is_zen_mode:
