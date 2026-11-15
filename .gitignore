@@ -18,3 +18,8 @@ Engg 1 work/
 env/
 venv/
 ENV/
+
+# SQLite temporary and WAL files
+*.db-shm
+*.db-wal
+*.log

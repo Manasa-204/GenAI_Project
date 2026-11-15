@@ -162,11 +162,30 @@ def run_hud_mode(args):
             last_time = now
 
             if not args.no_camera:
-                frame = orchestrator.vision_pipeline._get_camera_frame()
-                physical = orchestrator.poll_vision(frame=frame)
-                v_res = orchestrator.vision_pipeline.process_frame(frame)
-                ear_str = f"EAR:{v_res['ear']:.2f}"
-                pose_str = f"Yaw:{v_res['head_pose'][1]:.0f}°"
+                latest_tel = None
+                try:
+                    import db_manager
+                    latest_tel = db_manager.get_latest_focus_telemetry(max_age_seconds=3.5)
+                except Exception:
+                    pass
+
+                if latest_tel and "posture_state" in latest_tel:
+                    posture = latest_tel["posture_state"]
+                    if posture == "DROWSY_MICROSLEEP":
+                        physical = PhysicalState.SLEEPING
+                    elif posture in ("LOOKING_AWAY", "USER_AWAY", "PERIPHERAL_UNFOCUSED"):
+                        physical = PhysicalState.AWAY
+                    else:
+                        physical = PhysicalState.ACTIVE
+                    score = latest_tel.get("composite_score", 85.0)
+                    ear_str = f"Score:{score:.0f}%"
+                    pose_str = f"{posture[:8]}"
+                else:
+                    frame = orchestrator.vision_pipeline._get_camera_frame()
+                    physical = orchestrator.poll_vision(frame=frame)
+                    v_res = orchestrator.vision_pipeline.process_frame(frame)
+                    ear_str = f"EAR:{v_res['ear']:.2f}"
+                    pose_str = f"Yaw:{v_res['head_pose'][1]:.0f}°"
             else:
                 physical = PhysicalState.ACTIVE
                 ear_str = "EAR:N/A"
@@ -270,6 +289,11 @@ def main():
         "--enroll",
         action="store_true",
         help="Calibrate and enroll primary user via webcam"
+    )
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Enable verbose daemon logging"
     )
     args = parser.parse_args()
 

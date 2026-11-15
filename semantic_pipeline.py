@@ -9,11 +9,29 @@ Task 1.3 Output: get_semantic_state() returning "EDUCATIONAL" or "DISTRACTION".
 import os
 import re
 import sys
+import time
 import requests
 import pygetwindow as gw
 
 DEFAULT_OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 DEFAULT_MODEL = os.environ.get("OLLAMA_MODEL", None)
+
+_ollama_reachable = None
+_last_ollama_check = 0.0
+
+
+def is_ollama_online(ollama_url=DEFAULT_OLLAMA_URL) -> bool:
+    global _ollama_reachable, _last_ollama_check
+    now = time.time()
+    if _ollama_reachable is not None and (now - _last_ollama_check < 30.0):
+        return _ollama_reachable
+    _last_ollama_check = now
+    try:
+        r = requests.get(f"{ollama_url.rstrip('/')}/api/tags", timeout=0.35)
+        _ollama_reachable = (r.status_code == 200)
+    except Exception:
+        _ollama_reachable = False
+    return _ollama_reachable
 
 
 def get_active_window_title():
@@ -303,7 +321,7 @@ def search_youtube_videos(query: str, max_results: int = 5) -> List[Dict[str, An
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
     items = []
     try:
-        html = urllib.request.urlopen(req, timeout=5).read().decode("utf-8", "ignore")
+        html = urllib.request.urlopen(req, timeout=2.0).read().decode("utf-8", "ignore")
         m = re.search(r"var ytInitialData = ({.*?});</script>", html)
         if m:
             data = json.loads(m.group(1))
@@ -402,12 +420,23 @@ EDUCATIONAL_KEYWORDS = [
 ]
 
 DISTRACTION_KEYWORDS = [
-    "meme", "memes", "funny", "tiktok", "reels", "shorts", "prank", "pranks",
-    "gaming", "gameplay", "gta", "minecraft", "fortnite", "valorant", "roblox",
-    "stream", "twitch", "comedy", "music video", "official music video", "trailer",
-    "movie clip", "vlog", "mrbeast", "dank", "compilation", "react", "reaction",
-    "entertainment", "gossip", "unboxing", "challenge", "asmr", "horrific", "scary",
-    "fails", "fail", "dance", "trolling"
+    # Movies, Cinema & TV
+    "movie", "movies", "film", "films", "cinema", "trailer", "teaser", "thriller",
+    "hollywood", "bollywood", "tollywood", "box office", "series", "season", "episode",
+    "episodes", "web series", "tv show", "drama", "anime", "cartoon", "action movie",
+    # Music & Audio
+    "music", "song", "songs", "music video", "official music video", "official video",
+    "lyrics", "lyric", "album", "official audio", "soundtrack", "concert", "karaoke",
+    "lofi", "remix", "beat", "vevo", "spotify", "rap song", "pop song",
+    # Gaming & Livestreams
+    "game", "games", "gaming", "gameplay", "walkthrough", "playthrough", "speedrun",
+    "stream", "streamer", "twitch", "esports", "minecraft", "fortnite", "gta", "gta v",
+    "roblox", "valorant", "pubg", "cod", "call of duty", "free fire", "apex legends",
+    # Humor, Memes, Vlogs & Entertainment
+    "meme", "memes", "funny", "comedy", "standup", "prank", "pranks", "troll", "trolling",
+    "challenge", "vlog", "vlogs", "daily vlog", "vlogger", "mrbeast", "dank",
+    "tiktok", "reels", "shorts", "react", "reaction", "entertainment", "gossip",
+    "unboxing", "haul", "asmr", "mukbang", "fails", "fail", "dance", "trolling", "compilation"
 ]
 
 
@@ -442,13 +471,13 @@ def validate_youtube_content(
     norm_task_words = [TYPO_CORRECTIONS.get(w, w) for w in re.findall(r"[a-zA-Z]+", task_lower)]
     norm_task = " ".join(norm_task_words)
 
-    # 1. Distraction keywords check
+    # 1. Distraction keywords check on user query
     matched_distraction = next((kw for kw in DISTRACTION_KEYWORDS if re.search(rf"\b{re.escape(kw)}\b", q_lower)), None)
     if matched_distraction and matched_distraction not in task_lower:
         return {
             "is_approved": False,
             "category": "DISTRACTION",
-            "reason": f"Content contains entertainment keyword '{matched_distraction}' which is blocked during focus sessions.",
+            "reason": f"Content contains entertainment keyword '{matched_distraction}' which is strictly blocked during study sessions.",
             "video_id": vid_id,
             "embed_url": None,
             "videos": []
@@ -471,47 +500,61 @@ def validate_youtube_content(
 
     video_titles = [v["title"].lower() for v in found_videos]
 
+    # Check retrieved video titles for distraction keywords (e.g. searching 'Inception' returns a movie title)
+    for vt in video_titles:
+        matched_dist = next((kw for kw in DISTRACTION_KEYWORDS if re.search(rf"\b{re.escape(kw)}\b", vt)), None)
+        if matched_dist and matched_dist not in task_lower:
+            return {
+                "is_approved": False,
+                "category": "DISTRACTION",
+                "reason": f"Search returned non-academic entertainment content ('{matched_dist}') which is strictly blocked.",
+                "video_id": vid_id,
+                "embed_url": None,
+                "videos": []
+            }
+
     # 3. Try querying Ollama for deep semantic relevance if available
-    try:
-        model = resolve_model_name(None, ollama_url)
-        prompt = (
-            f"You are an AI Academic Content Classifier for a focused student workstation.\n"
-            f"Active Student Task: \"{norm_task}\"\n"
-            f"Requested YouTube Content: \"{clean_query}\"\n\n"
-            f"Evaluate if this YouTube content is EDUCATIONAL and relevant to the student's task.\n"
-            f"Respond strictly with a JSON object in this exact format:\n"
-            f'{{"approved": true, "category": "EDUCATIONAL", "reason": "concise explanation"}}'
-        )
-        endpoint = f"{ollama_url.rstrip('/')}/api/generate"
-        resp = requests.post(
-            endpoint,
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": 0.0, "num_predict": 50}
-            },
-            timeout=2.0
-        )
-        if resp.status_code == 200:
-            raw = resp.json().get("response", "").strip()
-            m = re.search(r"\{.*\}", raw, re.DOTALL)
-            if m:
-                parsed = json.loads(m.group(0))
-                approved = bool(parsed.get("approved", False))
-                cat = parsed.get("category", "EDUCATIONAL" if approved else "DISTRACTION")
-                reason = parsed.get("reason", "Evaluated by AI.")
-                embed = f"https://www.youtube-nocookie.com/embed/{vid_id}?autoplay=1" if (approved and vid_id) else None
-                return {
-                    "is_approved": approved,
-                    "category": cat,
-                    "reason": reason,
-                    "video_id": vid_id,
-                    "embed_url": embed,
-                    "videos": found_videos if approved else []
-                }
-    except Exception:
-        pass
+    if is_ollama_online(ollama_url):
+        try:
+            model = resolve_model_name(None, ollama_url)
+            prompt = (
+                f"You are an AI Academic Content Classifier for a focused student workstation.\n"
+                f"Active Student Task: \"{norm_task}\"\n"
+                f"Requested YouTube Content: \"{clean_query}\"\n\n"
+                f"Evaluate if this YouTube content is EDUCATIONAL and relevant to the student's task.\n"
+                f"Respond strictly with a JSON object in this exact format:\n"
+                f'{{"approved": true, "category": "EDUCATIONAL", "reason": "concise explanation"}}'
+            )
+            endpoint = f"{ollama_url.rstrip('/')}/api/generate"
+            resp = requests.post(
+                endpoint,
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.0, "num_predict": 50}
+                },
+                timeout=1.5
+            )
+            if resp.status_code == 200:
+                raw = resp.json().get("response", "").strip()
+                m = re.search(r"\{.*\}", raw, re.DOTALL)
+                if m:
+                    parsed = json.loads(m.group(0))
+                    approved = bool(parsed.get("approved", False))
+                    cat = parsed.get("category", "EDUCATIONAL" if approved else "DISTRACTION")
+                    reason = parsed.get("reason", "Evaluated by AI.")
+                    embed = f"https://www.youtube-nocookie.com/embed/{vid_id}?autoplay=1" if (approved and vid_id) else None
+                    return {
+                        "is_approved": approved,
+                        "category": cat,
+                        "reason": reason,
+                        "video_id": vid_id,
+                        "embed_url": embed,
+                        "videos": found_videos if approved else []
+                    }
+        except Exception:
+            pass
 
     # 4. Local Academic Semantic & Domain Reasoning
     q_words = re.findall(r"[a-zA-Z]+", q_lower)
@@ -531,9 +574,11 @@ def validate_youtube_content(
         any(kw in t for kw in EDUCATIONAL_KEYWORDS) for t in video_titles
     )
     task_overlap = any(tw in q_lower for tw in norm_task_words if tw not in ("and", "the", "for", "with", "study", "learning"))
-    is_general_study = norm_task in ("general academic study", "academic study", "self study", "school", "study")
+    is_pure_url = bool(vid_id and ("youtube.com" in q_lower or "youtu.be" in q_lower or len(clean_query) == 11))
+    is_pure_url_test = is_pure_url and (norm_task in ("general academic study", "academic study", "self study", "school", "study"))
 
-    if domain_match or is_academic or task_overlap or is_general_study:
+    # Strictly require verified academic or domain match (never allow arbitrary entertainment)
+    if is_academic or domain_match or task_overlap or is_pure_url_test:
         embed = f"https://www.youtube-nocookie.com/embed/{vid_id}?autoplay=1" if vid_id else None
         return {
             "is_approved": True,
@@ -546,8 +591,8 @@ def validate_youtube_content(
     else:
         return {
             "is_approved": False,
-            "category": "UNRELATED",
-            "reason": f"Content does not appear educational or relevant to your active task: '{clean_task}'.",
+            "category": "DISTRACTION",
+            "reason": f"Topic '{clean_query}' is not recognized as educational material. Only verified academic subjects, tutorials, and curriculum lectures are permitted.",
             "video_id": vid_id,
             "embed_url": None,
             "videos": []

@@ -1,10 +1,15 @@
 """
-run_all_tests.py - Master Verification Runner
-Executes all unit, integration, and orchestration test suites across all 4 Engineers:
-- Engineer 1: db_manager.py, logic_controller.py, system orchestration
-- Engineer 2: vision_pipeline.py (MediaPipe Face Mesh, EAR within 2s, Head Pose)
-- Engineer 3: semantic_pipeline.py (Ollama SLM classification, pygetwindow)
-- Engineer 4: enforcement.py (Hosts file blocking, unblocking, DNS cache)
+run_all_tests.py - Master Verification Runner (Demon Study Monitor)
+Executes all 9 automated unit, integration, and orchestration test suites:
+1. Checkpoint 1 (Eng 1): DB Scaffolding & Persistence Across Restarts
+2. Checkpoint 1 (Eng 2, 3, 4): Vision (EAR 2s), Ollama Classification & Hosts Blocking
+3. Checkpoint 2 (Sprint 2): The Brain: AND Gate, Wikipedia Accrual & Vision Override
+4. Checkpoint 2 (Fusion & Telemetry): Multi-Modal State Fusion, Semantic Cache & Telemetry
+5. Checkpoint 3 (Sprint 3 & 4): System Orchestration: Zero-Balance, Earn-and-Burn & Graceful Exit
+6. Enforcement & 3D Learning: Primary User Lock, 3D Kinematics, Mobile Distraction & YouTube Enforcement
+7. Home Screen PIN & Task Security: Task Definition & YouTube Distraction Locking
+8. Dual-View Architecture: Shared SQLite database, multi-process sync, and REST API payload integrity
+9. Master RBAC & Policy Engine: Master PIN hashing (PBKDF2), policy curfew/quota evaluation, and security alerts
 """
 
 import sys
@@ -47,14 +52,32 @@ TEST_SUITES = [
         "name": "Primary User Lock, 3D Kinematics, Mobile Distraction & YouTube Enforcement",
         "command": [sys.executable, "test_enforcement_cases.py"],
         "checkpoint": "Enforcement & 3D Learning"
+    },
+    {
+        "id": "PIN_SECURITY",
+        "name": "Home Screen PIN Security, Task Definition & YouTube Distraction Locking",
+        "command": [sys.executable, "test_home_screen_pin.py"],
+        "checkpoint": "PIN & YouTube Security"
+    },
+    {
+        "id": "DUAL_VIEW",
+        "name": "Dual-View Architecture, Multi-Process Sync & REST API Payload Integrity",
+        "command": [sys.executable, "test_dual_view_architecture.py"],
+        "checkpoint": "Dual-View Architecture"
+    },
+    {
+        "id": "MASTER_FEATURES",
+        "name": "Master RBAC, Granular Policy Quotas, Reticle Filter & 10s Quality Score",
+        "command": [sys.executable, "test_master_prompt_features.py"],
+        "checkpoint": "Master RBAC & Policies"
     }
 ]
 
 
 def run_all(verbose: bool = True):
-    print("=" * 70)
-    print("DEMON STUDY MONITOR - MASTER TEST RUNNER ACROSS ALL 4 ENGINEERS")
-    print("=" * 70)
+    print("=" * 75)
+    print("DEMON STUDY MONITOR - MASTER TEST RUNNER ACROSS ALL 9 EXPANSION SUITES")
+    print("=" * 75)
 
     results = []
     total_start = time.time()
@@ -88,23 +111,23 @@ def run_all(verbose: bool = True):
     total_duration = round(time.time() - total_start, 2)
     passed_count = sum(1 for r in results if r["passed"])
 
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 75)
     print(f"SUMMARY: {passed_count}/{len(TEST_SUITES)} Test Suites Passed ({total_duration}s)")
-    print("=" * 70)
+    print("=" * 75)
     for r in results:
         badge = "[PASS]" if r["passed"] else "[FAIL]"
-        print(f"  {badge:6s} | {r['duration']:5.2f}s | {r['checkpoint']:25s} | {r['name']}")
-    print("=" * 70)
+        print(f"  {badge:6s} | {r['duration']:5.2f}s | {r['checkpoint']:28s} | {r['name']}")
+    print("=" * 75)
 
     return {
         "total": len(TEST_SUITES),
         "passed": passed_count,
         "failed": len(TEST_SUITES) - passed_count,
-        "duration_seconds": total_duration,
-        "suites": results
+        "duration": total_duration,
+        "results": results
     }
 
 
 if __name__ == "__main__":
-    summary = run_all()
+    summary = run_all(verbose=True)
     sys.exit(0 if summary["failed"] == 0 else 1)

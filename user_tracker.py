@@ -21,6 +21,23 @@ import numpy as np
 
 PROFILE_FILE_NAME = "user_profile.json"
 
+# Checkpoint 3: Spatial Focus Region (Central Reticle 20%-80% X, 15%-85% Y)
+FOCUS_REGION = {
+    "min_x": 0.20,
+    "max_x": 0.80,
+    "min_y": 0.15,
+    "max_y": 0.85
+}
+
+
+def is_in_focus_region(box: Dict[str, float]) -> bool:
+    """Verifies whether face bounding box center (cx, cy) is within central reticle."""
+    cx = box.get("cx", 0.5)
+    cy = box.get("cy", 0.5)
+    return (FOCUS_REGION["min_x"] <= cx <= FOCUS_REGION["max_x"]) and \
+           (FOCUS_REGION["min_y"] <= cy <= FOCUS_REGION["max_y"])
+
+
 
 def get_profile_path() -> str:
     """Returns local path in dev mode, or %LOCALAPPDATA%\\Demon in frozen mode."""

@@ -94,11 +94,27 @@ def log_research_entry(
         ])
 
 
-def read_vision_state_safe() -> str:
+def read_vision_state_safe(db_path: Optional[str] = None) -> str:
     """
     Safely queries the vision pipeline without allowing camera/mesh exceptions to crash the loop.
     Returns 'ACTIVE' or 'IDLE' (defaults to 'IDLE' if sensor fails).
     """
+    # 1. Check if mock vision state is explicitly set (e.g. during unit tests)
+    if vision_pipeline and getattr(vision_pipeline, "_mock_vision_state", None) is not None:
+        return vision_pipeline._mock_vision_state
+
+    # 2. Check if recent telemetry is available in SQLite (written by web_dashboard streamer)
+    try:
+        latest = db_manager.get_latest_focus_telemetry(max_age_seconds=4.0, db_path=db_path)
+        if latest and "fused_state" in latest:
+            return latest["fused_state"]
+        if latest and "posture_state" in latest:
+            p = latest["posture_state"]
+            return "ACTIVE" if p in ("DIRECT_FOCUS", "PASSIVE_READING", "DESK_NOTE_TAKING") else "IDLE"
+    except Exception:
+        pass
+
+    # 3. Direct hardware query (standalone mode when web_dashboard is not running)
     if vision_pipeline and hasattr(vision_pipeline, "get_vision_state"):
         try:
             state = vision_pipeline.get_vision_state()
@@ -107,6 +123,7 @@ def read_vision_state_safe() -> str:
         except Exception as e:
             print(f"[logic_controller] Warning: Vision sensor error: {e}")
             return "IDLE"
+
     return "IDLE"
 
 
@@ -146,7 +163,7 @@ def evaluate_cycle(
     now_iso = datetime.now().isoformat()
     
     # 1. Acquire inputs
-    vision_state = (vision_override or read_vision_state_safe() or "IDLE").strip().upper()
+    vision_state = (vision_override or read_vision_state_safe(db_path=db_path) or "IDLE").strip().upper()
     semantic_state = (semantic_override or read_semantic_state_safe() or "DISTRACTION").strip().upper()
 
     # 2. Evaluate the AND Gate
