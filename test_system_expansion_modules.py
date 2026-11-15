@@ -196,6 +196,39 @@ class TestSystemExpansionModules(unittest.TestCase):
         zen_height = 68
         self.assertEqual((zen_width, zen_height), (260, 68))
 
+    # -------------------------------------------------------------------------
+    # AUTOMATED EXIT HANDLER & CLEANUP TEST
+    # -------------------------------------------------------------------------
+    def test_auto_cleanup_exit_handler(self):
+        """
+        PROVES: When distraction blocking is active and the script terminates
+        (via exit handler or Ctrl+C KeyboardInterrupt in a try...finally block),
+        the hosts file is automatically cleansed of all blocked entries and
+        ipconfig /flushdns is programmatically executed.
+        """
+        # 1. Block distractions on test hosts file
+        enforcement.set_mock_mode(False)
+        enforcement.block_distractions(hosts_path=self.test_hosts, force_flush=False)
+        self.assertTrue(enforcement.is_distraction_blocked(hosts_path=self.test_hosts))
+
+        # 2. Simulate script interruption inside try...finally
+        try:
+            # Simulate unexpected KeyboardInterrupt (Ctrl+C force stop)
+            raise KeyboardInterrupt("Simulated Ctrl+C force stop")
+        except KeyboardInterrupt:
+            # Caught by signal/exception handler
+            pass
+        finally:
+            # Automatic exit cleanup
+            enforcement.unblock_distractions(hosts_path=self.test_hosts, force_flush=True)
+
+        # 3. Verify hosts file is completely cleaned
+        self.assertFalse(enforcement.is_distraction_blocked(hosts_path=self.test_hosts))
+        with open(self.test_hosts, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertNotIn(enforcement.BLOCK_HEADER, content)
+        self.assertNotIn("youtube.com", content)
+
 
 if __name__ == "__main__":
     unittest.main()

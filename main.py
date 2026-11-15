@@ -31,9 +31,12 @@ _cleaned_up = False
 def cleanup_on_exit():
     """Safe exit handler to ensure hosts file and database remain consistent."""
     global _cleaned_up
+    if _cleaned_up:
+        return
+    _cleaned_up = True
     try:
-        # On exit, always ensure restrictions are lifted so user is never locked out
-        enforcement.unblock_distractions()
+        # On exit, always ensure restrictions are lifted and DNS is programmatically flushed
+        enforcement.unblock_distractions(force_flush=True)
     except Exception:
         pass
 
@@ -42,7 +45,7 @@ atexit.register(cleanup_on_exit)
 
 
 def signal_handler(signum, frame):
-    """Handles OS termination signals cleanly."""
+    """Handles OS termination signals cleanly (SIGINT, SIGTERM, SIGBREAK)."""
     global _is_running
     _is_running = False
     cleanup_on_exit()
@@ -52,6 +55,8 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGINT, signal_handler)
 if hasattr(signal, "SIGTERM"):
     signal.signal(signal.SIGTERM, signal_handler)
+if hasattr(signal, "SIGBREAK"):
+    signal.signal(signal.SIGBREAK, signal_handler)
 
 
 def run_orchestrator_step(

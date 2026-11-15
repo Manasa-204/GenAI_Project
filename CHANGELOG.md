@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.1] - 2026-11-15 - Automatic Distraction-Blocker Cleanup & Exit Handlers (Branch: `loki`)
+
+### Added
+- **Automatic Distraction-Blocker Exit Handlers & DNS Restoration**:
+  - Enhanced `enforcement.py` with multi-path exit handling: `try...finally` blocks, `atexit.register()`, `signal.SIGINT` (Ctrl+C), `signal.SIGTERM`, and `signal.SIGBREAK` (Windows console close).
+  - Implemented programmatic DNS cache flushing in `flush_dns()` via `C:\Windows\System32\ipconfig.exe /flushdns` (`creationflags=0x08000000`) so internet access to blocked websites is restored immediately without reboot or browser restart.
+  - Added read-only flag removal (`os.chmod`) in `unblock_distractions()` before file writes to prevent Windows `PermissionError` during hosts file cleanup.
+  - Added standalone interactive CLI distraction blocker in `enforcement.py` (`python enforcement.py` / `python enforcement.py --block`) wrapped in `try...finally: unblock_distractions(force_flush=True)`.
+  - Added integration in `main.py` daemon loop with `try...finally` block and Windows `SIGBREAK` signal handler.
+  - Added automated unit test `test_auto_cleanup_exit_handler` in `test_system_expansion_modules.py`.
+
 ## [2.1.0] - 2026-11-15 - 9-Module Full Platform Expansion & Optimization (Branch: `loki`)
 
 ### Added

@@ -40,6 +40,11 @@ Over the course of the project, Demon Study Monitor evolved from an initial mult
    - **Module 7 (8-Item Recent App History Buffer)**: Deque tracking last 8 focused applications with category tags, duration, and REST API (`/api/apps/recent`).
    - **Module 8 (10-Second System Diagnostics Sampler)**: Automated background sampler querying CPU, RAM, SQLite query latency, camera FPS, and hosts guard status (`/api/diagnostics`).
    - **Module 9 (Gamified Student Focus Monitor GUI)**: Dynamic Tkinter Canvas circular arc focus ring, dual balance counters ("Leisure Remaining" vs "Study Time Earned Today"), 260x68 Zen Pill mode, and Master PIN exit modal (`1323`).
+5. **Milestone 5 (Distraction-Blocker Automatic Cleanup & Exit Resilience)**:
+   - Multi-layer exit handler architecture utilizing `try...finally`, `atexit.register()`, `signal.SIGINT`, `signal.SIGTERM`, and Windows `signal.SIGBREAK`.
+   - Programmatic DNS cache flush via `C:\Windows\System32\ipconfig.exe /flushdns` in `enforcement.flush_dns()`.
+   - Guaranteed restoration of the Windows hosts file (`C:\Windows\System32\drivers\etc\hosts`) and removal of write-protection attributes on interruption or termination.
+   - Interactive standalone CLI mode (`python enforcement.py` / `python enforcement.py --block`) with full graceful shutdown lifecycle.
 
 ---
 

@@ -14,6 +14,9 @@ Handles:
 
 import os
 import sys
+import time
+import atexit
+import signal
 import ctypes
 import subprocess
 import socket
@@ -143,22 +146,31 @@ def is_admin() -> bool:
 
 
 def flush_dns() -> bool:
-    """Flushes OS DNS resolver cache."""
+    """Flushes OS DNS resolver cache programmatically (Windows ipconfig /flushdns)."""
     try:
         if sys.platform == "win32":
             creationflags = 0x08000000  # CREATE_NO_WINDOW
-            subprocess.run(
-                ["ipconfig", "/flushdns"],
-                check=True,
+            ipconfig_bin = "ipconfig"
+            system_root = os.environ.get("SystemRoot", r"C:\Windows")
+            candidate = os.path.join(system_root, "System32", "ipconfig.exe")
+            if os.path.exists(candidate):
+                ipconfig_bin = candidate
+
+            res = subprocess.run(
+                [ipconfig_bin, "/flushdns"],
+                check=False,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 creationflags=creationflags
             )
+            return res.returncode == 0
         elif sys.platform.startswith("linux"):
             subprocess.run(["resolvectl", "flush-caches"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            return True
         elif sys.platform == "darwin":
             subprocess.run(["dscacheutil", "-flushcache"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             subprocess.run(["killall", "-HUP", "mDNSResponder"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            return True
         return True
     except Exception:
         return False
@@ -295,16 +307,27 @@ def block_distractions(
 
 
 def unblock_distractions(hosts_path: Optional[str] = None, force_flush: bool = True) -> bool:
-    """Removes the DEMON enforcement block, restoring domain access."""
+    """
+    Removes the DEMON enforcement block, restoring domain access,
+    and programmatically executes ipconfig /flushdns to immediately restore internet access.
+    Guaranteed execution via try...finally block.
+    """
     global _is_blocked_state, _mock_mode
     if _mock_mode:
         _is_blocked_state = False
         return True
 
     target_path = hosts_path or get_default_hosts_path()
+    success = False
 
     try:
         if os.path.exists(target_path):
+            try:
+                import stat
+                os.chmod(target_path, stat.S_IWRITE | stat.S_IREAD)
+            except Exception:
+                pass
+
             with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
                 existing_content = f.read()
 
@@ -312,15 +335,77 @@ def unblock_distractions(hosts_path: Optional[str] = None, force_flush: bool = T
 
             with open(target_path, "w", encoding="utf-8") as f:
                 f.write(cleaned_content)
-
-            if force_flush:
-                flush_dns()
-
-        _is_blocked_state = False
-        return True
+            success = True
     except Exception:
+        pass
+    finally:
+        # Guarantee that ipconfig /flushdns is executed to immediately clear DNS cache
+        if force_flush:
+            try:
+                flush_dns()
+            except Exception:
+                pass
         _is_blocked_state = False
-        return True
+
+    return success
+
+
+_exit_handler_registered = False
+
+
+def cleanup_on_exit(hosts_path: Optional[str] = None):
+    """
+    Automated Exit Handler:
+    Automatically cleans up after itself when the script terminates
+    (even if force stopped with Ctrl+C, SIGTERM, or SIGBREAK).
+    Removes the blocked websites from the Windows hosts file and programmatically
+    runs 'ipconfig /flushdns' to immediately restore internet access.
+    """
+    global _is_blocked_state, _mock_mode
+    try:
+        if _is_blocked_state:
+            unblock_distractions(hosts_path=hosts_path, force_flush=True)
+    except Exception:
+        try:
+            flush_dns()
+        except Exception:
+            pass
+
+
+def _signal_handler(signum, frame):
+    """Signal interrupt handler catching Ctrl+C (SIGINT), SIGTERM, and SIGBREAK."""
+    cleanup_on_exit()
+    sys.exit(0)
+
+
+def register_exit_handlers():
+    """Registers atexit and OS signal interrupt handlers for automated cleanup."""
+    global _exit_handler_registered
+    if _exit_handler_registered:
+        return
+    _exit_handler_registered = True
+
+    atexit.register(cleanup_on_exit)
+
+    try:
+        signal.signal(signal.SIGINT, _signal_handler)
+    except Exception:
+        pass
+
+    if hasattr(signal, "SIGTERM"):
+        try:
+            signal.signal(signal.SIGTERM, _signal_handler)
+        except Exception:
+            pass
+
+    if hasattr(signal, "SIGBREAK"):
+        try:
+            signal.signal(signal.SIGBREAK, _signal_handler)
+        except Exception:
+            pass
+
+
+register_exit_handlers()
 
 
 def is_domain_blocked(domain: str, hosts_path: Optional[str] = None) -> bool:
@@ -600,8 +685,64 @@ def enforce_rules(
     }
 
 
+def run_distraction_blocker_cli():
+    """
+    Interactive standalone CLI for enforcement.py as a distraction blocker.
+    Wraps the entire session in a try...finally block with signal interrupt handlers
+    so that when the script terminates—even if force stopped with Ctrl+C—it automatically
+    removes the blocked websites from the Windows hosts file and programmatically runs
+    ipconfig /flushdns to immediately restore internet access.
+    """
+    import argparse
+    parser = argparse.ArgumentParser(description="Demon OS Distraction Blocker & Hosts Enforcement")
+    parser.add_argument("--unblock", action="store_true", help="Immediately unblock distraction websites and flush DNS")
+    parser.add_argument("--status", action="store_true", help="Check current hosts distraction blocking status")
+    parser.add_argument("--test", action="store_true", help="Run diagnostic telemetry without blocking")
+    args = parser.parse_args()
+
+    if args.status:
+        blocked = is_distraction_blocked()
+        print(f"[*] Distraction Blocked Status: {'ACTIVE (BLOCKED)' if blocked else 'INACTIVE (UNBLOCKED)'}")
+        print(f"[*] Running as Administrator: {is_admin()}")
+        return
+
+    if args.unblock:
+        print("[*] Removing blocked websites from Windows hosts file and flushing DNS...")
+        unblock_distractions(force_flush=True)
+        print("[+] Internet access restored successfully.")
+        return
+
+    if args.test:
+        print("[enforcement] Testing zero-tolerance enforcement engine...")
+        print(f"  Is Admin: {is_admin()}")
+        print(f"  Known distraction blacklisted apps: {len(KNOWN_DISTRACTION_PROCESSES)}")
+        print(f"  Distraction blocked status: {is_distraction_blocked()}")
+        return
+
+    print("=" * 65)
+    print(" DEMON OS DISTRACTION BLOCKER ACTIVE")
+    print(f" Running as Administrator : {is_admin()}")
+    print(f" Target Hosts Path        : {get_default_hosts_path()}")
+    print("=" * 65)
+
+    try:
+        print("[*] Writing distraction websites to Windows hosts file (0.0.0.0 redirection)...")
+        blocked = block_distractions(force_flush=True)
+        print(f"[+] Successfully blocked {len(blocked)} distraction domains.")
+        print("[+] Programmatically executed 'ipconfig /flushdns'.")
+        print("\n[STATUS: BLOCKED] Distraction websites are blocked.")
+        print("[CONTROL] Press Ctrl+C at any time to stop and automatically restore internet access.\n")
+
+        while True:
+            time.sleep(1)
+
+    except KeyboardInterrupt:
+        print("\n[!] Force stop requested (Ctrl+C). Cleaning up...")
+    finally:
+        print("[*] Automatically removing blocked websites from Windows hosts file...")
+        unblock_distractions(force_flush=True)
+        print("[+] Programmatically executed 'ipconfig /flushdns'. Internet access fully restored.")
+
+
 if __name__ == "__main__":
-    print("[enforcement] Testing zero-tolerance enforcement engine...")
-    print(f"  Is Admin: {is_admin()}")
-    print(f"  Known distraction blacklisted apps: {len(KNOWN_DISTRACTION_PROCESSES)}")
-    print(f"  Distraction blocked status: {is_distraction_blocked()}")
+    run_distraction_blocker_cli()
