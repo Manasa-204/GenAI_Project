@@ -318,6 +318,82 @@ class RobustCameraStreamer:
         with self.lock:
             return dict(self.last_metrics)
 
+    def lock_current_face(self, name: str = "Primary User") -> Dict[str, Any]:
+        """
+        Option 2: 1-Click Enrollment from Web UI.
+        Locks onto and saves the face currently visible in the camera.
+        """
+        tracker = get_user_tracker()
+
+        # 1. Hardware camera live frame: pick the primary face in the central focus reticle
+        if hasattr(self.pipeline, "latest_multi_face_landmarks") and self.pipeline.latest_multi_face_landmarks:
+            multi_lms = self.pipeline.latest_multi_face_landmarks
+            shape = getattr(self.pipeline, "latest_frame_shape", (480, 640))
+
+            candidate_faces = []
+            for face_lm in multi_lms:
+                box = tracker.extract_bounding_box(face_lm, shape)
+                geom = tracker.extract_face_geometry(face_lm, shape)
+                if box and geom:
+                    in_ret = is_in_focus_region(box)
+                    area_score = box["area"] * (1.0 - abs(box["cx"] - 0.5) * 0.4)
+                    candidate_faces.append({
+                        "landmarks": face_lm,
+                        "box": box,
+                        "geom": geom,
+                        "in_reticle": in_ret,
+                        "score": area_score + (1.0 if in_ret else 0.0)
+                    })
+
+            if candidate_faces:
+                candidate_faces.sort(key=lambda f: f["score"], reverse=True)
+                target_face = candidate_faces[0]
+                ok = tracker.enroll_single_frame(target_face["landmarks"], shape, name=name)
+                if ok:
+                    return {
+                        "status": "ok",
+                        "message": f"Successfully locked onto {name}! Profile saved to user_profile.json.",
+                        "lock_status": tracker.get_lock_status()
+                    }
+
+        if hasattr(self.pipeline, "latest_landmarks") and self.pipeline.latest_landmarks is not None:
+            lms = self.pipeline.latest_landmarks
+            shape = getattr(self.pipeline, "latest_frame_shape", (480, 640))
+            ok = tracker.enroll_single_frame(lms, shape, name=name)
+            if ok:
+                return {
+                    "status": "ok",
+                    "message": f"Successfully locked onto {name}! Profile saved to user_profile.json.",
+                    "lock_status": tracker.get_lock_status()
+                }
+
+        # 2. Synthetic mode fallback (if webcam unavailable or running simulated kinematics)
+        if self.cap is None or not self.cap.isOpened():
+            ok = tracker.enroll_synthetic(name=name)
+            return {
+                "status": "ok",
+                "message": f"Locked onto {name} (Simulation Profile Active).",
+                "lock_status": tracker.get_lock_status()
+            }
+
+        return {
+            "status": "error",
+            "message": "No face currently detected in the central reticle. Sit facing the camera and try again.",
+            "lock_status": tracker.get_lock_status()
+        }
+
+    def reset_face_lock(self) -> Dict[str, Any]:
+        """
+        Option 2: Clears face lock and profile, allowing a new student to be tracked.
+        """
+        tracker = get_user_tracker()
+        tracker.reset_lock()
+        return {
+            "status": "ok",
+            "message": "Face lock cleared. Ready to lock onto new student.",
+            "lock_status": tracker.get_lock_status()
+        }
+
 
 camera_streamer = RobustCameraStreamer()
 
@@ -536,6 +612,7 @@ def get_system_status() -> Dict[str, Any]:
         "zero_tolerance": zero_tolerance,
         "camera": cam_info,
         "stats": stats,
+        "face_lock": get_user_tracker().get_lock_status(),
         "policies": policies,
         "recent_apps": recent_apps,
         "diagnostics": {
@@ -660,8 +737,32 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
             <div class="mt-4 w-full aspect-video rounded-2xl overflow-hidden border border-slate-800 bg-black relative shadow-inner">
                 <img id="student-camera-feed" src="/api/video_feed" class="w-full h-full object-cover" alt="Student Camera Preview" onerror="handleStreamError(this)">
                 <div class="absolute bottom-2 left-2 text-[10px] mono text-emerald-400 font-bold bg-black/80 px-2.5 py-0.5 rounded border border-emerald-500/40 flex items-center gap-1.5 shadow">
-                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> FACE LOCK ACTIVE
+                    <span id="student-lock-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span id="student-lock-badge-text">FACE LOCK ACTIVE</span>
                 </div>
+            </div>
+
+            <!-- Option 1 & 2: Primary Person Target Lock Control -->
+            <div class="mt-3.5 w-full p-3 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col gap-2 shadow-lg">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm">🔒</span>
+                        <div>
+                            <span id="face-lock-title" class="text-xs font-bold text-white block">Primary Person Lock</span>
+                            <span id="face-lock-sub" class="text-[10px] text-slate-400">Glued to main person; ignores newcomers</span>
+                        </div>
+                    </div>
+                    <span id="face-lock-state-badge" class="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">LOCKED</span>
+                </div>
+                <div class="flex items-center gap-2 pt-1">
+                    <button id="btn-lock-face" onclick="lockCurrentFace()" class="flex-1 py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white transition flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/30">
+                        <span>🎯</span> Lock My Face
+                    </button>
+                    <button id="btn-reset-face" onclick="resetFaceLock()" class="py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 border border-slate-700 transition" title="Clear lock to let someone else be main person">
+                        <span>🔄</span> Reset Lock
+                    </button>
+                </div>
+                <div id="face-lock-msg" class="hidden text-[10px] text-center font-medium py-1 px-2 rounded-lg"></div>
             </div>
         </div>
 
@@ -855,6 +956,21 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                     <div class="p-2 rounded-xl bg-slate-900/80 border border-slate-800">
                         <span class="text-[9px] uppercase font-bold text-slate-400 block">Focus Region</span>
                         <span id="admin-reticle" class="text-xs font-bold text-emerald-400">ACTIVE</span>
+                    </div>
+                </div>
+
+                <!-- Admin Target Lock Controls -->
+                <div class="mt-3 p-3 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm">🔒</span>
+                        <div>
+                            <span id="admin-face-lock-title" class="text-xs font-bold text-white block">Primary Person Target Lock</span>
+                            <span id="admin-face-lock-sub" class="text-[10px] text-slate-400">Sticky tracking onto primary student</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <button onclick="lockCurrentFace()" class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white transition">🎯 Lock Face</button>
+                        <button onclick="resetFaceLock()" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 border border-slate-700 transition">🔄 Reset Lock</button>
                     </div>
                 </div>
             </div>
@@ -1176,6 +1292,114 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
                 document.getElementById('diag-fps').textContent = diag.vision_fps + ' FPS';
                 document.getElementById('diag-ram').textContent = diag.memory_mb + ' MB';
                 document.getElementById('diag-timestamp').textContent = diag.timestamp;
+            }
+
+            // 5. Face Lock Telemetry Status (Options 1 & 2)
+            if (data.face_lock) {
+                const fl = data.face_lock;
+                const badge = document.getElementById('face-lock-state-badge');
+                const title = document.getElementById('face-lock-title');
+                const sub = document.getElementById('face-lock-sub');
+                const adminTitle = document.getElementById('admin-face-lock-title');
+                const adminSub = document.getElementById('admin-face-lock-sub');
+                const camDot = document.getElementById('student-lock-dot');
+                const camText = document.getElementById('student-lock-badge-text');
+
+                if (fl.is_enrolled) {
+                    if (badge) {
+                        badge.textContent = 'PROFILE LOCKED';
+                        badge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold';
+                    }
+                    if (title) title.textContent = `${fl.user_name || 'Primary User'} [Locked]`;
+                    if (sub) sub.textContent = 'Biometric profile active (ignores other faces)';
+                    if (adminTitle) adminTitle.textContent = `${fl.user_name || 'Primary User'} [Biometric Locked]`;
+                    if (adminSub) adminSub.textContent = 'Profile saved on disk; newcomers strictly rejected';
+                    if (camDot) camDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+                    if (camText) camText.textContent = 'PRIMARY USER LOCKED';
+                } else if (fl.is_locked) {
+                    if (badge) {
+                        badge.textContent = 'STICKY LOCKED';
+                        badge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 font-bold';
+                    }
+                    if (title) title.textContent = 'Session Lock Active';
+                    if (sub) sub.textContent = 'Glued to original student via IoU trajectory';
+                    if (adminTitle) adminTitle.textContent = 'Session Auto-Lock Active';
+                    if (adminSub) adminSub.textContent = 'Tracking original person; secondary faces ignored';
+                    if (camDot) camDot.className = 'w-2 h-2 rounded-full bg-indigo-400 animate-pulse';
+                    if (camText) camText.textContent = 'SESSION USER LOCKED';
+                } else {
+                    if (badge) {
+                        badge.textContent = 'SEARCHING';
+                        badge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold';
+                    }
+                    if (title) title.textContent = 'Searching for Student...';
+                    if (sub) sub.textContent = 'Sit in front of camera to auto-lock';
+                    if (adminTitle) adminTitle.textContent = 'Searching for Face...';
+                    if (adminSub) adminSub.textContent = 'Camera will latch onto primary seated user';
+                    if (camDot) camDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+                    if (camText) camText.textContent = 'SEARCHING FOR FACE';
+                }
+            }
+        }
+
+        // =================================================================
+        // Option 2: 1-Click Face Target Lock & Reset Handlers
+        // =================================================================
+        async function lockCurrentFace() {
+            const btn = document.getElementById('btn-lock-face');
+            const msg = document.getElementById('face-lock-msg');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span>⏳</span> Locking...';
+            }
+            try {
+                const res = await fetch('/api/lock-current-face', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: 'Primary Student' })
+                });
+                const data = await res.json();
+                if (msg) {
+                    msg.classList.remove('hidden');
+                    if (data.status === 'ok') {
+                        msg.className = 'text-[10px] text-center font-medium py-1 px-2 rounded-lg bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 block';
+                        msg.textContent = '✓ ' + (data.message || 'Face locked successfully!');
+                    } else {
+                        msg.className = 'text-[10px] text-center font-medium py-1 px-2 rounded-lg bg-rose-950/60 text-rose-300 border border-rose-500/30 block';
+                        msg.textContent = '⚠ ' + (data.message || 'Could not lock face');
+                    }
+                    setTimeout(() => { msg.classList.add('hidden'); }, 4000);
+                }
+            } catch (err) {
+                console.error(err);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span>🎯</span> Lock My Face';
+                }
+                pollStatus();
+            }
+        }
+
+        async function resetFaceLock() {
+            if (!confirm('Reset primary face lock? The system will auto-lock to the next person who sits down in front of the camera.')) return;
+            try {
+                const res = await fetch('/api/reset-face-lock', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({})
+                });
+                const data = await res.json();
+                const msg = document.getElementById('face-lock-msg');
+                if (msg) {
+                    msg.classList.remove('hidden');
+                    msg.className = 'text-[10px] text-center font-medium py-1 px-2 rounded-lg bg-indigo-950/60 text-indigo-300 border border-indigo-500/30 block';
+                    msg.textContent = '🔄 Lock cleared. Ready for new student.';
+                    setTimeout(() => { msg.classList.add('hidden'); }, 4000);
+                }
+                pollStatus();
+            } catch (err) {
+                console.error(err);
             }
         }
 
@@ -1680,6 +1904,15 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 "is_blocked": enforcement.is_distraction_blocked(),
                 "hosts_writeable": enforcement.can_write_hosts()
             })
+
+        elif parsed.path == "/api/lock-current-face":
+            name = str(payload.get("name", "Primary User")).strip() or "Primary User"
+            res = camera_streamer.lock_current_face(name=name)
+            self._send_json(res)
+
+        elif parsed.path == "/api/reset-face-lock":
+            res = camera_streamer.reset_face_lock()
+            self._send_json(res)
 
         elif parsed.path == "/api/step":
             res = logic_controller.evaluate_cycle()

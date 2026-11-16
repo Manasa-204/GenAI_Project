@@ -1,0 +1,20 @@
+{
+  "name": "Primary Student",
+  "geometric_vector": [
+    0.5769,
+    0.8373,
+    0.4775,
+    0.5242,
+    0.3411,
+    0.3946,
+    1.4029
+  ],
+  "color_signature": [],
+  "anchor_box": {
+    "cx": 0.6469,
+    "cy": 0.5934,
+    "width": 0.3084,
+    "height": 0.4711
+  },
+  "enrolled_at": "2026-11-16 19:39:18"
+}

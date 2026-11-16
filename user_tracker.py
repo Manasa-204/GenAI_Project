@@ -53,6 +53,39 @@ def _euclidean_dist_2d(p1: Tuple[float, float], p2: Tuple[float, float]) -> floa
     return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
 
 
+def compute_iou(box1: Dict[str, float], box2: Dict[str, float]) -> float:
+    """Computes Intersection over Union (IoU) between two normalized bounding boxes."""
+    if not box1 or not box2:
+        return 0.0
+    x1 = max(box1.get("min_x", 0.0), box2.get("min_x", 0.0))
+    y1 = max(box1.get("min_y", 0.0), box2.get("min_y", 0.0))
+    x2 = min(box1.get("max_x", 1.0), box2.get("max_x", 1.0))
+    y2 = min(box1.get("max_y", 1.0), box2.get("max_y", 1.0))
+
+    inter_w = max(0.0, x2 - x1)
+    inter_h = max(0.0, y2 - y1)
+    inter_area = inter_w * inter_h
+
+    area1 = max(1e-4, box1.get("area", (box1.get("max_x", 1.0) - box1.get("min_x", 0.0)) * (box1.get("max_y", 1.0) - box1.get("min_y", 0.0))))
+    area2 = max(1e-4, box2.get("area", (box2.get("max_x", 1.0) - box2.get("min_x", 0.0)) * (box2.get("max_y", 1.0) - box2.get("min_y", 0.0))))
+
+    union_area = area1 + area2 - inter_area
+    if union_area <= 1e-6:
+        return 0.0
+    return round(float(np.clip(inter_area / union_area, 0.0, 1.0)), 4)
+
+
+def compute_centroid_distance(box1: Dict[str, float], box2: Dict[str, float]) -> float:
+    """Euclidean distance between two normalized bounding box centers."""
+    if not box1 or not box2:
+        return 1.0
+    cx1 = box1.get("cx", 0.5)
+    cy1 = box1.get("cy", 0.5)
+    cx2 = box2.get("cx", 0.5)
+    cy2 = box2.get("cy", 0.5)
+    return round(math.hypot(cx1 - cx2, cy1 - cy2), 4)
+
+
 class UserProfile:
     """
     Stores geometric and appearance signatures for the enrolled primary user.
@@ -122,8 +155,22 @@ class PrimaryUserTracker:
         self.profile: Optional[UserProfile] = None
         self.last_matched_box: Optional[Dict[str, float]] = None
         self.last_match_time: float = 0.0
-        self.match_threshold: float = 0.65  # Confidence required to consider candidate as primary user
+        self.match_threshold: float = 0.52  # Confidence required to consider candidate as primary user
+
+        # Option 1: Sticky Session-Lock & IoU Tracking State
+        self.session_locked_box: Optional[Dict[str, float]] = None
+        self.session_locked_geom: Optional[List[float]] = None
+        self.session_user_name: str = "Primary User"
+        self.is_session_locked: bool = False
+        self.consecutive_misses: int = 0
+        self.session_lock_time: float = 0.0
+
         self.load_profile()
+        if self.profile and self.profile.geometric_vector:
+            self.is_session_locked = True
+            self.session_locked_box = dict(self.profile.anchor_box)
+            self.session_locked_geom = list(self.profile.geometric_vector)
+            self.session_user_name = self.profile.name
 
     def load_profile(self) -> bool:
         """Loads enrolled user profile from disk if available."""
@@ -248,35 +295,54 @@ class PrimaryUserTracker:
         candidate_box: Dict[str, float]
     ) -> float:
         """
-        Computes composite similarity score between a candidate face and the enrolled profile.
+        Computes composite similarity score between a candidate face and the locked user.
+        Uses IoU overlap, centroid proximity, scale ratio, and geometric features.
         Returns a value in [0.0, 1.0].
         """
-        if not self.profile or not self.profile.geometric_vector:
-            return 1.0  # If uncalibrated, accept candidate
+        ref_geom = None
+        if self.profile and self.profile.geometric_vector:
+            ref_geom = self.profile.geometric_vector
+        elif self.session_locked_geom:
+            ref_geom = self.session_locked_geom
 
-        ref_geom = np.array(self.profile.geometric_vector, dtype=np.float32)
-        cand_geom = np.array(candidate_geom, dtype=np.float32)
+        target_anchor = self.last_matched_box or self.session_locked_box or (self.profile.anchor_box if self.profile else None)
+        if target_anchor is None:
+            return 1.0
 
-        # 1. Geometric distance (relative normalized L1 error)
-        denom = np.maximum(ref_geom, 1e-4)
-        rel_diff = np.abs(ref_geom - cand_geom) / denom
-        geom_err = float(np.mean(rel_diff))
-        geom_sim = max(0.0, 1.0 - geom_err * 2.5)
+        # 1. IoU Overlap Score (direct spatial continuity)
+        iou = compute_iou(candidate_box, target_anchor)
 
-        # 2. Spatial proximity score (prefer face matching recent position or anchor)
-        target_anchor = self.last_matched_box or self.profile.anchor_box
-        dist_x = abs(candidate_box["cx"] - target_anchor["cx"])
-        dist_y = abs(candidate_box["cy"] - target_anchor["cy"])
-        spatial_dist = math.hypot(dist_x, dist_y)
-        spatial_sim = max(0.0, 1.0 - spatial_dist * 1.5)
+        # 2. Centroid distance to last position and baseline anchor
+        dist_last = compute_centroid_distance(candidate_box, target_anchor)
+        anchor_box = (self.profile.anchor_box if self.profile else None) or self.session_locked_box or target_anchor
+        dist_anchor = compute_centroid_distance(candidate_box, anchor_box)
+        min_dist = min(dist_last, dist_anchor)
+        spatial_sim = max(0.0, 1.0 - min_dist * 2.2)
 
-        # 3. Scale / Size similarity (student seated close vs small passerby in background)
+        # 3. Scale / Size similarity
         ref_h = target_anchor.get("height", 0.4)
         cand_h = candidate_box.get("height", 0.4)
         size_ratio = min(ref_h, cand_h) / max(ref_h, cand_h, 1e-4)
 
-        # Composite score
-        total_score = 0.55 * geom_sim + 0.25 * spatial_sim + 0.20 * size_ratio
+        # 4. Geometric similarity
+        if ref_geom and candidate_geom:
+            ref_arr = np.array(ref_geom, dtype=np.float32)
+            cand_arr = np.array(candidate_geom, dtype=np.float32)
+            denom = np.maximum(ref_arr, 1e-4)
+            rel_diff = np.abs(ref_arr - cand_arr) / denom
+            geom_err = float(np.mean(rel_diff))
+            geom_sim = max(0.0, 1.0 - geom_err * 2.2)
+        else:
+            geom_sim = 1.0
+
+        # Weighted composite score:
+        if ref_geom:
+            # Enrolled profile: combine biometric geometry + spatial continuity + IoU
+            total_score = 0.45 * geom_sim + 0.25 * spatial_sim + 0.15 * iou + 0.15 * size_ratio
+        else:
+            # Session lock: spatial continuity and IoU dominate to stay glued to seated person
+            total_score = 0.15 * geom_sim + 0.45 * spatial_sim + 0.25 * iou + 0.15 * size_ratio
+
         return float(np.clip(total_score, 0.0, 1.0))
 
     def enroll(
@@ -319,8 +385,104 @@ class PrimaryUserTracker:
             }
         )
         self.save_profile()
+        self.is_session_locked = True
+        self.session_locked_box = dict(self.profile.anchor_box)
+        self.session_locked_geom = list(avg_geom)
+        self.session_user_name = name
+        self.last_matched_box = dict(self.profile.anchor_box)
+        self.last_match_time = time.time()
+        self.consecutive_misses = 0
         print(f"[UserTracker] Primary User enrolled successfully! Geometric features: {avg_geom}")
         return True
+
+    def enroll_single_frame(
+        self,
+        landmarks: Any,
+        frame_shape: Tuple[int, int],
+        name: str = "Primary User"
+    ) -> bool:
+        """
+        Option 2: 1-Click Enrollment.
+        Immediately captures and persists the face in the current frame as the primary user.
+        """
+        geom = self.extract_face_geometry(landmarks, frame_shape)
+        box = self.extract_bounding_box(landmarks, frame_shape)
+        if not geom or not box:
+            return False
+
+        self.profile = UserProfile(
+            name=name,
+            geometric_vector=geom,
+            anchor_box={
+                "cx": box["cx"],
+                "cy": box["cy"],
+                "width": box["width"],
+                "height": box["height"]
+            }
+        )
+        self.save_profile()
+        self.is_session_locked = True
+        self.session_locked_box = dict(box)
+        self.session_locked_geom = list(geom)
+        self.session_user_name = name
+        self.last_matched_box = dict(box)
+        self.last_match_time = time.time()
+        self.consecutive_misses = 0
+        print(f"[UserTracker] 1-Click Enrollment succeeded for {name}! Anchor box: {box}")
+        return True
+
+    def enroll_synthetic(self, name: str = "Primary User") -> bool:
+        """Enrolls a realistic synthetic user profile for testing / simulation."""
+        synthetic_geom = [0.42, 0.72, 0.48, 0.45, 0.48, 0.44, 1.0]
+        synthetic_box = {"cx": 0.50, "cy": 0.50, "width": 0.35, "height": 0.45}
+        self.profile = UserProfile(
+            name=name,
+            geometric_vector=synthetic_geom,
+            anchor_box=synthetic_box
+        )
+        self.save_profile()
+        self.is_session_locked = True
+        self.session_locked_box = dict(synthetic_box)
+        self.session_locked_geom = list(synthetic_geom)
+        self.session_user_name = name
+        self.last_matched_box = dict(synthetic_box)
+        self.last_match_time = time.time()
+        self.consecutive_misses = 0
+        return True
+
+    def reset_lock(self) -> bool:
+        """
+        Option 2: Resets the primary face lock, clearing saved profile and session lock.
+        Allows a new student to become the primary user.
+        """
+        self.profile = None
+        self.session_locked_box = None
+        self.session_locked_geom = None
+        self.session_user_name = "Primary User"
+        self.is_session_locked = False
+        self.last_matched_box = None
+        self.consecutive_misses = 0
+        self.last_match_time = 0.0
+
+        if os.path.exists(self.profile_path):
+            try:
+                os.remove(self.profile_path)
+                print(f"[UserTracker] Deleted profile at {self.profile_path}")
+            except Exception as e:
+                print(f"[UserTracker] Warning deleting profile: {e}")
+        return True
+
+    def get_lock_status(self) -> Dict[str, Any]:
+        """Returns comprehensive lock status for web telemetry."""
+        has_profile = self.profile is not None and bool(self.profile.geometric_vector)
+        return {
+            "is_locked": self.is_session_locked or has_profile,
+            "is_enrolled": has_profile,
+            "user_name": self.profile.name if has_profile else (self.session_user_name if self.is_session_locked else None),
+            "enrolled_at": self.profile.enrolled_at if has_profile else None,
+            "has_active_track": self.last_matched_box is not None,
+            "consecutive_misses": self.consecutive_misses
+        }
 
     def find_primary_user(
         self,
@@ -328,18 +490,29 @@ class PrimaryUserTracker:
         frame_shape: Tuple[int, int]
     ) -> Tuple[Optional[Any], Optional[Dict[str, float]], List[Dict[str, float]]]:
         """
-        Evaluates all candidate faces detected by MediaPipe in a frame.
-        Identifies and isolates the enrolled primary user, rejecting all other persons.
+        Evaluates all candidate faces detected in a frame.
+        Guarantees that the enrolled primary user is strictly locked onto and cannot
+        be hijacked by secondary persons, roommates, or passersby.
 
         Returns:
             (primary_landmarks, primary_bbox, background_bboxes)
         """
         if not multi_face_landmarks:
+            self.consecutive_misses += 1
             return None, None, []
 
         now = time.time()
-        candidates = []
 
+        # Check if profile exists on disk and load if not yet loaded
+        if self.profile is None:
+            self.load_profile()
+            if self.profile and self.profile.geometric_vector:
+                self.is_session_locked = True
+                self.session_locked_box = dict(self.profile.anchor_box)
+                self.session_locked_geom = list(self.profile.geometric_vector)
+                self.session_user_name = self.profile.name
+
+        candidates = []
         for i, face_lm in enumerate(multi_face_landmarks):
             landmarks = face_lm.landmark
             geom = self.extract_face_geometry(landmarks, frame_shape)
@@ -347,44 +520,170 @@ class PrimaryUserTracker:
             if not geom or not box:
                 continue
 
-            sim_score = self.compute_similarity(geom, box)
             candidates.append({
                 "index": i,
                 "landmarks": face_lm,
-                "box": box,
-                "score": sim_score
+                "geom": geom,
+                "box": box
             })
 
         if not candidates:
+            self.consecutive_misses += 1
             return None, None, []
 
-        # Sort candidates by similarity score descending
-        candidates.sort(key=lambda c: c["score"], reverse=True)
-        best = candidates[0]
+        has_profile = self.profile is not None and bool(self.profile.geometric_vector)
 
-        # If no enrolled user profile exists yet, lock onto the primary seated user (largest face near center)
-        if self.profile is None or not self.profile.geometric_vector:
-            best_init = max(candidates, key=lambda c: c["box"]["area"] * (1.0 - abs(c["box"]["cx"] - 0.5) * 0.5))
-            self.last_matched_box = best_init["box"]
+        # ---------------------------------------------------------------------
+        # MODE A: Enrolled Profile Exists (Ground-Truth Anchor Verification)
+        # ---------------------------------------------------------------------
+        if has_profile:
+            ref_anchor = self.profile.anchor_box
+            ref_geom = self.profile.geometric_vector
+
+            valid_matches = []
+            for c in candidates:
+                cand_box = c["box"]
+                cand_geom = c["geom"]
+
+                # 1. Distance to Ground-Truth Enrolled Anchor
+                dist_to_anchor = compute_centroid_distance(cand_box, ref_anchor)
+
+                # 2. IoU overlap with last matched frame (if last match was valid)
+                iou_last = compute_iou(cand_box, self.last_matched_box) if self.last_matched_box else 0.0
+
+                # 3. Geometric similarity against enrolled biometric vector
+                ref_arr = np.array(ref_geom, dtype=np.float32)
+                cand_arr = np.array(cand_geom, dtype=np.float32)
+                denom = np.maximum(ref_arr, 1e-4)
+                rel_diff = np.abs(ref_arr - cand_arr) / denom
+                geom_err = float(np.mean(rel_diff))
+                geom_sim = max(0.0, 1.0 - geom_err * 2.2)
+
+                # 4. Spatial similarity to enrolled anchor
+                spatial_sim = max(0.0, 1.0 - dist_to_anchor * 2.2)
+
+                # 5. Scale consistency
+                ref_h = ref_anchor.get("height", 0.4)
+                cand_h = cand_box.get("height", 0.4)
+                scale_sim = min(ref_h, cand_h) / max(ref_h, cand_h, 1e-4)
+
+                composite_score = 0.45 * geom_sim + 0.35 * spatial_sim + 0.10 * iou_last + 0.10 * scale_sim
+
+                # Gatekeeper criteria:
+                # - Must be near the enrolled anchor location (dist <= 0.22) OR strong IoU with continuous track near anchor
+                # - Must have acceptable biometric geometry similarity (geom_sim >= 0.45)
+                # - Composite score >= match_threshold
+                is_near_anchor = (dist_to_anchor <= 0.22)
+                is_continuous = (iou_last > 0.15) and (dist_to_anchor <= 0.28)
+
+                if (is_near_anchor or is_continuous) and geom_sim >= 0.45 and composite_score >= self.match_threshold:
+                    valid_matches.append({
+                        **c,
+                        "score": composite_score,
+                        "dist_anchor": dist_to_anchor
+                    })
+
+            if valid_matches:
+                # Pick the candidate that best matches the enrolled profile and is closest to anchor
+                valid_matches.sort(key=lambda m: m["score"] - m["dist_anchor"] * 0.2, reverse=True)
+                primary = valid_matches[0]
+
+                self.last_matched_box = dict(primary["box"])
+                self.last_match_time = now
+                self.consecutive_misses = 0
+
+                primary_lm = primary["landmarks"]
+                primary_box = dict(primary["box"])
+                primary_box["confidence"] = round(primary["score"], 3)
+                background_boxes = [c["box"] for c in candidates if c["index"] != primary["index"]]
+                return primary_lm, primary_box, background_boxes
+            else:
+                # Enrolled user is absent or out of seat!
+                # All detected faces are unauthorized secondary persons / passersby.
+                self.consecutive_misses += 1
+                return None, None, [c["box"] for c in candidates]
+
+        # ---------------------------------------------------------------------
+        # MODE B: No Enrolled Profile Yet (Session-Lock / Auto-Acquisition)
+        # ---------------------------------------------------------------------
+        if not self.is_session_locked:
+            # First frame of uncalibrated session: latch onto the prominent face in central reticle
+            in_reticle = [c for c in candidates if is_in_focus_region(c["box"])]
+            pool = in_reticle if in_reticle else candidates
+            best_init = max(pool, key=lambda c: c["box"]["area"] * (1.0 - abs(c["box"]["cx"] - 0.5) * 0.5))
+
+            self.session_locked_box = dict(best_init["box"])
+            self.session_locked_geom = list(best_init["geom"])
+            self.last_matched_box = dict(best_init["box"])
+            self.is_session_locked = True
             self.last_match_time = now
+            self.consecutive_misses = 0
+
             primary_lm = best_init["landmarks"]
-            primary_box = best_init["box"]
+            primary_box = dict(best_init["box"])
             primary_box["confidence"] = 1.0
             background_boxes = [c["box"] for c in candidates if c["index"] != best_init["index"]]
             return primary_lm, primary_box, background_boxes
 
-        # Verify acceptance against confidence threshold
-        if best["score"] >= self.match_threshold:
-            self.last_matched_box = best["box"]
+        # Session lock active: evaluate candidates against session anchor
+        session_anchor = self.session_locked_box
+        session_geom = self.session_locked_geom
+
+        valid_matches = []
+        for c in candidates:
+            cand_box = c["box"]
+            cand_geom = c["geom"]
+
+            dist_to_anchor = compute_centroid_distance(cand_box, session_anchor)
+            iou_last = compute_iou(cand_box, self.last_matched_box) if self.last_matched_box else 0.0
+
+            ref_arr = np.array(session_geom, dtype=np.float32)
+            cand_arr = np.array(cand_geom, dtype=np.float32)
+            denom = np.maximum(ref_arr, 1e-4)
+            rel_diff = np.abs(ref_arr - cand_arr) / denom
+            geom_err = float(np.mean(rel_diff))
+            geom_sim = max(0.0, 1.0 - geom_err * 2.2)
+
+            spatial_sim = max(0.0, 1.0 - dist_to_anchor * 2.2)
+
+            ref_h = session_anchor.get("height", 0.4)
+            cand_h = cand_box.get("height", 0.4)
+            scale_sim = min(ref_h, cand_h) / max(ref_h, cand_h, 1e-4)
+
+            score = 0.25 * geom_sim + 0.45 * spatial_sim + 0.15 * iou_last + 0.15 * scale_sim
+
+            is_near_anchor = (dist_to_anchor <= 0.22)
+            is_continuous = (iou_last > 0.12) and (dist_to_anchor <= 0.28)
+
+            if (is_near_anchor or is_continuous) and score >= 0.45:
+                valid_matches.append({
+                    **c,
+                    "score": score,
+                    "dist_anchor": dist_to_anchor
+                })
+
+        if valid_matches:
+            valid_matches.sort(key=lambda m: m["score"] - m["dist_anchor"] * 0.2, reverse=True)
+            primary = valid_matches[0]
+
+            self.last_matched_box = dict(primary["box"])
             self.last_match_time = now
-            primary_lm = best["landmarks"]
-            primary_box = best["box"]
-            primary_box["confidence"] = round(best["score"], 3)
-            background_boxes = [c["box"] for c in candidates if c["index"] != best["index"]]
+            self.consecutive_misses = 0
+
+            primary_lm = primary["landmarks"]
+            primary_box = dict(primary["box"])
+            primary_box["confidence"] = round(primary["score"], 3)
+            background_boxes = [c["box"] for c in candidates if c["index"] != primary["index"]]
             return primary_lm, primary_box, background_boxes
         else:
-            # None of the visible faces match the enrolled user (e.g. Passerby detected while student is away!)
-            # All visible faces are background distractions
+            # Session user absent
+            self.consecutive_misses += 1
+            if now - self.last_match_time > 45.0:
+                # If vacant for 45s, release session lock
+                self.is_session_locked = False
+                self.session_locked_box = None
+                self.last_matched_box = None
+
             return None, None, [c["box"] for c in candidates]
 
 

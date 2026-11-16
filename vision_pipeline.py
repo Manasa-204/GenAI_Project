@@ -476,6 +476,9 @@ class VisionPipeline:
         primary_lm, primary_box, background_boxes = self.user_tracker.find_primary_user(
             results.multi_face_landmarks, (height, width)
         )
+        self.latest_landmarks = primary_lm or (results.multi_face_landmarks[0] if results and results.multi_face_landmarks else None)
+        self.latest_frame_shape = (height, width)
+        self.latest_multi_face_landmarks = results.multi_face_landmarks if results else []
 
         if primary_lm is None:
             # Only background/peripheral faces detected

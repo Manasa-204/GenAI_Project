@@ -1,33 +1,37 @@
 @echo off
-title Demon Study Monitor - Master One-Click Startup
+title Demon Study Monitor - Web Dashboard
 color 0A
 
 echo ======================================================================
-echo           DEMON AI STUDY MONITOR - ONE-CLICK LAUNCHER
+echo           DEMON AI STUDY MONITOR - WEB DASHBOARD LAUNCHER
 echo ======================================================================
 echo.
 
 cd /d "%~dp0"
 
-echo [1/3] Booting Dual-Portal Web Dashboard Server (http://localhost:8000)...
-start "Demon Web Dashboard" /min python web_dashboard.py
+set "PY_EXE=python"
+if exist "%~dp0.venv\Scripts\python.exe" (
+    set "PY_EXE=%~dp0.venv\Scripts\python.exe"
+)
 
-timeout /t 2 /nobreak >nul
+echo [*] Using Python: %PY_EXE%
 
-echo [2/3] Booting Background Tracker Daemon...
-start "Demon Background Daemon" /min python main.py --verbose
+:: Terminate any lingering web_dashboard instances to prevent camera or port conflicts
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'web_dashboard\.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
 
-timeout /t 1 /nobreak >nul
+echo [*] Starting Web Dashboard Server (http://localhost:8000)...
 
-echo [3/3] Booting Student Desktop Focus HUD GUI...
-start "Demon Student Focus HUD" python desktop_app.py
+start "Demon Web Dashboard" /min "%PY_EXE%" "%~dp0web_dashboard.py"
+
+ping 127.0.0.1 -n 3 >nul
+
+echo [*] Opening Web Dashboard in browser...
+start http://localhost:8000
 
 echo.
 echo ======================================================================
-echo [SUCCESS] All 3 Demon components are live and running!
-echo   - Web Dashboard:  http://localhost:8000 (Student View & Parent Admin PIN: 1323)
-echo   - Student HUD:    Floating GUI running with live circular focus arc
-echo   - Daemon:         Autonomous background enforcement & policy engine
+echo [SUCCESS] Demon Web Dashboard is live at http://localhost:8000
 echo ======================================================================
 echo.
-pause
+timeout /t 5 >nul
+exit
